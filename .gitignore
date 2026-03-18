@@ -1,0 +1,32 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build output
+bin/
+dist/
+build/
+
+# Coverage
+coverage.out
+*.coverprofile
+
+# Dependency directories
+vendor/
+
+# Go workspace
+go.work.sum
+
+# IDE/editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
