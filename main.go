@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"go-learning/lessons/basics"
-	"go-learning/lessons/collections"
-	"go-learning/lessons/structs_interfaces"
+	"go-learning/lessons/01_basics"
+	"go-learning/lessons/02_collections"
+	"go-learning/lessons/03_structs_interfaces"
 )
 
 func main() {
