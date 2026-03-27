@@ -35,6 +35,13 @@ func Run() {
 		fmt.Printf("Count: %d\n", i)
 	}
 
+	// if 带初始化的特殊写法
+	// mockError() 是一个假装返回错误的函数，我们把它声明在初始化语句中
+	if err := mockError(); err != nil {
+		fmt.Printf("Error handled inside if block: %v\n", err)
+	}
+	// 注意：在这里你是无法访问 err 变量的，因为它的作用域只在上面的 if 块内
+
 	// switch 演示 (不需要 break)
 	day := "Monday"
 	switch day {
@@ -62,6 +69,11 @@ func Run() {
 // add 仅在 basics 包内可见
 func add(a int, b int) int {
 	return a + b
+}
+
+// mockError 模拟一个返回错误的函数
+func mockError() error {
+	return fmt.Errorf("this is a simulated error")
 }
 
 // divMod 仅在 basics 包内可见
