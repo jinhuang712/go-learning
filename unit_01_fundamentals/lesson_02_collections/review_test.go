@@ -1,4 +1,4 @@
-package collections
+package lesson_02_collections
 
 import "testing"
 

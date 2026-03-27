@@ -1,24 +1,20 @@
-# Lesson 2: 集合类型 (Collections)
+# Lesson 2: 集合类型 (Collections & Internals)
 
 本课程主要介绍 Go 语言中的核心集合类型：数组、切片 (Slice) 和 映射 (Map)。
+不要被它们简单的语法欺骗，作为资深开发者，你必须深入理解它们在内存中的底层结构，才能避开性能和并发陷阱。
 
-## 核心知识点
+## 课程目录
 
-### 1. 数组 (Array) vs 切片 (Slice)
-| 特性 | 数组 (Array) | 切片 (Slice) | Java 对应 |
-| :--- | :--- | :--- | :--- |
-| **长度** | **固定** (`[3]int`) | **动态** (`[]int`) | Array vs ArrayList |
-| **传递** | 值传递 (Copy) | 引用传递 (Reference) | - |
+1. [数组与切片核心剖析](./01_slice_internals.md)
+   - 数组 (定长、值传递)
+   - 切片底层结构 (Pointer, len, cap)
+   - 截取的副作用与 `append` 扩容机制
+2. [映射 (Map) 核心剖析与并发陷阱](./02_map_internals.md)
+   - `nil` map 恐慌
+   - `comma ok` 检查模式
+   - 遍历的绝对无序性
+   - 致命坑点：原生 Map 并发读写引发 `fatal error`
 
-**重点**: 切片底层是对数组的引用。修改切片元素可能会影响底层数组和其他共享该数组的切片。
-
-### 2. Map (映射)
-- **定义**: `map[KeyType]ValueType`
-- **操作**:
-  - 创建: `make(map[string]int)`
-  - 查找: `val, ok := m[key]` ("comma ok" idiom)
-  - 遍历: `for k, v := range m` (注意：顺序随机)
-
-## 练习
-1. 创建一个 Slice，观察 `append` 导致的 `cap` (容量) 变化。
-2. 尝试从 Map 中删除一个 Key: `delete(m, key)`。
+## 运行方式
+在 `main.go` 中调用 `lesson_02_collections.Run()` 即可运行本课程代码。
+也可以执行 `go test ./unit_01_fundamentals/lesson_02_collections` 验证练习题。

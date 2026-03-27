@@ -17,7 +17,7 @@ func main() {
 	basics.Run()
 
 	// 运行第二课：集合类型
-	collections.Run()
+	lesson_02_collections.Run()
 	
 	// 运行第三课：结构体与接口
 	structs_interfaces.Run()
