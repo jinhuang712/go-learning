@@ -11,7 +11,7 @@
 - [x] Lesson 2: Collections (数组、切片与映射)
 - [x] Lesson 3: Structs & Interfaces (结构体、方法、接口隐式实现与组合)
 - [x] Lesson 4: Pointers & Value Semantics (指针与值语义)
-- [ ] Lesson 5: Error Handling (错误处理、panic/recover、多返回值实战)
+- [x] Lesson 5: Error Handling (错误处理、panic/recover、多返回值实战)
 
 ### Unit 2: 并发与并行核心 (Concurrency & Parallelism)
 - [ ] Lesson 1: Goroutine & CSP 模型基础
