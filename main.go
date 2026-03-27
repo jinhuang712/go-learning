@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"go-learning/lessons/01_basics"
-	"go-learning/lessons/02_collections"
-	"go-learning/lessons/03_structs_interfaces"
+	"go-learning/unit_01_fundamentals/lesson_01_basics"
+	"go-learning/unit_01_fundamentals/lesson_02_collections"
+	"go-learning/unit_01_fundamentals/lesson_03_structs_interfaces"
+	"go-learning/unit_01_fundamentals/lesson_04_pointers"
 )
 
 func main() {
@@ -19,6 +20,9 @@ func main() {
 	
 	// 运行第三课：结构体与接口
 	structs_interfaces.Run()
+
+	// 运行第四课：指针与值语义
+	pointers.Run()
 
 	fmt.Println("\n=================================")
 	fmt.Println("Course execution finished.")

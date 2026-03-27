@@ -24,10 +24,24 @@ func Run() {
 	fmt.Printf("It is %d. We are learning %s.\n", year, language)
 	fmt.Println(message)
 
-	// 4. 控制流 (Loop)
-	fmt.Println("\nCounting:")
+	// 4. 控制流 (Loop, Switch, Defer)
+	fmt.Println("\n--- Control Flow ---")
+	
+	// Defer 演示
+	defer fmt.Println("This is deferred and will print at the very end of Run().")
+
+	// for 循环
 	for i := 0; i < 3; i++ {
 		fmt.Printf("Count: %d\n", i)
+	}
+
+	// switch 演示 (不需要 break)
+	day := "Monday"
+	switch day {
+	case "Saturday", "Sunday":
+		fmt.Println("It's the weekend!")
+	default:
+		fmt.Println("It's a workday.")
 	}
 
 	// 5. 函数调用
