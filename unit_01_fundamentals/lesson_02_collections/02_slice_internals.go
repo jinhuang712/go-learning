@@ -6,10 +6,9 @@ import "fmt"
 func DemoSliceInternals() {
 	fmt.Println("--- 01: Slice Internals ---")
 
-	// 1. 数组 vs 切片
-	arr := [3]int{1, 2, 3}
+	// 1. 切片类型
 	slice := []int{1, 2, 3}
-	fmt.Printf("Array type: %T, Slice type: %T\n", arr, slice)
+	fmt.Printf("Slice type: %T\n", slice)
 
 	// 2. 切片截取与底层数组共享
 	nums := []int{10, 20, 30, 40, 50}
@@ -20,7 +19,19 @@ func DemoSliceInternals() {
 	sub[0] = 999 
 	fmt.Printf("After modify sub[0]: nums=%v, sub=%v\n", nums, sub)
 
-	// 3. Append 与扩容机制
+	// 3. 安全克隆 (Deep Copy)
+	// 技巧: 往一个 nil 切片里 append 另一个切片的展开元素 (...)
+	safeClone := append([]int(nil), nums[1:3]...)
+	safeClone[0] = 888
+	fmt.Printf("After modify safeClone[0]: nums=%v, safeClone=%v (No impact on nums!)\n", nums, safeClone)
+
+	// 错误示范：反着写会怎样？
+	// 尝试向 nums[1:3] (也就是 [999, 30]) 追加空元素
+	wrongClone := append(nums[1:3], []int(nil)...)
+	wrongClone[0] = 777
+	fmt.Printf("After modify wrongClone[0]: nums=%v, wrongClone=%v (Oops, nums is affected!)\n", nums, wrongClone)
+
+	// 4. Append 与扩容机制
 	fmt.Println("\n--- Append & Capacity ---")
 	// make([]type, len, cap)
 	s := make([]int, 0, 3) 

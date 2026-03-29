@@ -5,11 +5,15 @@
 
 ## 课程目录
 
-1. [数组与切片核心剖析](./01_slice_internals.md)
-   - 数组 (定长、值传递)
+1. [数组 (Array) 核心剖析](./01_array_internals.md)
+   - 长度是类型的一部分
+   - 纯粹的值传递
+2. [切片 (Slice) 核心剖析与坑点](./02_slice_internals.md)
    - 切片底层结构 (Pointer, len, cap)
-   - 截取的副作用与 `append` 扩容机制
-2. [映射 (Map) 核心剖析与并发陷阱](./02_map_internals.md)
+   - make 创建语法
+   - 截取的副作用与安全 Clone 技巧
+   - append 扩容机制与必写 `=` 的原因
+3. [映射 (Map) 核心剖析与并发陷阱](./03_map_internals.md)
    - `nil` map 恐慌
    - `comma ok` 检查模式
    - 遍历的绝对无序性

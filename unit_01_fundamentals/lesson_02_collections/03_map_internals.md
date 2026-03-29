@@ -36,6 +36,36 @@ if !ok {
 **最致命的坑**: Go 的原生 `map` **不支持并发读写**。
 - 如果一个 goroutine 在写 map，另一个 goroutine 在读/写 map，Go 运行时会直接抛出致命错误 `fatal error: concurrent map read and map write`，这会导致整个微服务进程立刻挂掉，连 `recover` 都救不回来！
 - **Java 对比**: 类似 Java 的 `HashMap`（也是线程不安全的），但在 Java 里最多是数据错乱或者死循环，Go 里是直接 kill 进程。
-- **解决方案**:
-  1. 使用 `sync.RWMutex` 自己加锁保护。
-  2. 使用并发安全的 `sync.Map`（通常用于读多写少的缓存场景）。
+- **解决方案 (如何在微服务中安全使用 Map)**:
+  
+  **方案 A：原生 `map` + `sync.RWMutex` (读写锁)**
+  这是最通用、性能最可控的方式。通常会把 map 和锁封装在一个结构体里：
+  ```go
+  type SafeCache struct {
+      mu sync.RWMutex
+      m  map[string]string
+  }
+  
+  func (c *SafeCache) Get(key string) (string, bool) {
+      c.mu.RLock() // 读锁：允许多个 goroutine 同时读
+      defer c.mu.RUnlock()
+      val, ok := c.m[key]
+      return val, ok
+  }
+  
+  func (c *SafeCache) Set(key, val string) {
+      c.mu.Lock() // 写锁：独占，阻塞其他所有读和写
+      defer c.mu.Unlock()
+      c.m[key] = val
+  }
+  ```
+
+  **方案 B：使用官方的 `sync.Map`**
+  Go 标准库提供了一个并发安全的 `sync.Map`，类似于 Java 的 `ConcurrentHashMap`，但它的底层实现非常特殊（利用了两个原生的 map 和原子操作）。
+  - **适用场景**：只适合**读多写少**（比如配置缓存），或者各个 goroutine 读写的 Key 完全不交叉的情况。
+  - **缺点**：API 不如原生 map 好用（需要频繁使用 `interface{}` / `any` 类型断言），在写操作密集的场景下，性能反而不如 `方案 A`。
+  ```go
+  var sm sync.Map
+  sm.Store("Language", "Go") // 存入
+  val, ok := sm.Load("Language") // 读取，val 是 any 类型
+  ```
