@@ -15,6 +15,14 @@ type User struct {
 	Age  int
 }
 
+// NewUser 模拟构造函数 (大厂常用模式)
+func NewUser(name string, age int) *User {
+	return &User{
+		Name: name,
+		Age:  age,
+	}
+}
+
 // Introduce 是 User 的一个方法
 // (u User) 是接收者 (Receiver)，类似于 Java 中的 this
 // 这是一个 "值接收者" (Value Receiver)，通过拷贝调用，无法修改 u 的字段

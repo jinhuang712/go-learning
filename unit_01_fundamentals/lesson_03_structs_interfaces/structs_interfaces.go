@@ -16,11 +16,16 @@ func Run() {
 func demoStructs() {
 	fmt.Println("\n--- 01: Structs & Methods ---")
 	
+	// 方式 1: 字面量初始化 (推荐)
 	user := User{
 		Name: "Alice",
 		Age:  30,
 	}
 	fmt.Printf("User: %+v\n", user)
+
+	// 方式 2: 通过模拟构造函数初始化
+	user2 := NewUser("Bob", 25)
+	fmt.Printf("User2 (from NewUser): %+v\n", user2)
 
 	// 值接收者方法
 	user.Introduce()
