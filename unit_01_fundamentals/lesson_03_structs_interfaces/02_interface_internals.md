@@ -9,6 +9,28 @@
 **大厂工程优势**：
 这种设计允许你**先写具体实现，后抽象接口**。在调用方（Consumer）定义接口，而不是在提供方（Producer）定义接口。这使得依赖注入 (DI) 和 Mock 测试变得极其简单，解耦极其彻底。
 
+**代码示例**：
+```go
+// 1. 定义一个接口
+type Speaker interface {
+    Speak() string
+}
+
+// 2. 定义两个毫不相干的结构体
+type Dog struct{}
+type Cat struct{}
+
+// 3. 只要它们各自实现了 Speak() string，它们就都是 Speaker
+func (d Dog) Speak() string { return "Woof!" }
+func (c Cat) Speak() string { return "Meow!" }
+
+// 4. 多态调用
+func MakeItSpeak(s Speaker) {
+    fmt.Println(s.Speak())
+}
+// 调用: MakeItSpeak(Dog{})
+```
+
 ## 2.2 接口的底层结构：`iface` 与 `eface`
 在 Go 的运行时源码中，接口其实是一个**由两个指针组成的胖指针（占 16 字节）**。
 

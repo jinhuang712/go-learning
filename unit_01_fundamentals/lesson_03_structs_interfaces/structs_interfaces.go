@@ -64,6 +64,7 @@ func demoStructs() {
 func demoInterfaces() {
 	fmt.Println("\n--- 02: Interface Internals ---")
 	
+	// 1. 隐式实现演示
 	var speaker Speaker
 
 	user := User{Name: "Alice", Age: 30}
@@ -80,12 +81,31 @@ func demoInterfaces() {
 	fmt.Print("Admin as Speaker: ")
 	speaker.Speak()
 
-	// 接口的 nil 坑点演示
+	// 2. 接口的 nil 坑点演示
 	fmt.Println("\n--- Interface Nil Pitfall ---")
-	var uPtr *User = nil
-	var anyInterface any = uPtr
+	var uPtr *User = nil // 一个具体的指针，值为 nil
+	var anyInterface any = uPtr // 赋值给空接口 (any)
 
-	fmt.Printf("uPtr == nil? %t\n", uPtr == nil)
-	fmt.Printf("anyInterface == nil? %t (Danger!)\n", anyInterface == nil)
+	fmt.Printf("uPtr == nil? %t\n", uPtr == nil) // true
+	fmt.Printf("anyInterface == nil? %t (Danger!)\n", anyInterface == nil) // false!
 	fmt.Printf("anyInterface type: %T, value: %v\n", anyInterface, anyInterface)
+
+	// 3. 类型断言 (Type Assertion)
+	fmt.Println("\n--- Type Assertion ---")
+	var i any = "hello from Go"
+
+	// 安全断言 (Comma-ok)
+	if str, ok := i.(string); ok {
+		fmt.Printf("Asserted as string: %s\n", str)
+	}
+
+	// 类型开关 (Type Switch)
+	switch v := i.(type) {
+	case string:
+		fmt.Printf("It's a string of length %d\n", len(v))
+	case int:
+		fmt.Printf("It's an int: %d\n", v)
+	default:
+		fmt.Println("Unknown type")
+	}
 }
