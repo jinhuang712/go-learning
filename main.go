@@ -20,7 +20,7 @@ func main() {
 	lesson_02_collections.Run()
 	
 	// 运行第三课：结构体与接口
-	structs_interfaces.Run()
+	lesson_03_structs_interfaces.Run()
 
 	// 运行第四课：指针与值语义
 	pointers.Run()

@@ -1,4 +1,4 @@
-package structs_interfaces
+package lesson_03_structs_interfaces
 
 import "fmt"
 

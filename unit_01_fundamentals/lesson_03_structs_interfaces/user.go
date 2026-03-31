@@ -1,6 +1,12 @@
-package structs_interfaces
+package lesson_03_structs_interfaces
 
 import "fmt"
+
+// Speaker 接口定义 (为了解耦，通常定义在调用方，但这里为了演示放在这)
+// Java: public interface Speaker { void speak(); }
+type Speaker interface {
+	Speak()
+}
 
 // User 定义一个结构体
 // Java: public class User { public String name; public int age; ... }
