@@ -64,6 +64,29 @@ func Run() {
 	res := calc.PublicFunc(10, 20)
 	fmt.Printf("calc.PublicFunc(10, 20) = %d\n", res)
 	fmt.Printf("calc.PublicConst = %d\n", calc.PublicConst)
+
+	// 8. 深浅拷贝演示
+	demoCopyClone()
+}
+
+// demoCopyClone 演示结构体中包含引用类型时的浅拷贝坑点
+func demoCopyClone() {
+	fmt.Println("\n--- Copy vs Clone Demo ---")
+	type User struct {
+		Name string
+		Tags []string
+	}
+
+	u1 := User{Name: "Alice", Tags: []string{"admin", "vip"}}
+	u2 := u1 // 这里发生的是结构体的浅拷贝
+
+	// 修改值类型字段 (不互相影响)
+	u2.Name = "Bob"
+	// 修改引用类型字段 (会互相污染！)
+	u2.Tags[0] = "guest"
+
+	fmt.Printf("u1: %+v\n", u1) // u1.Tags[0] 也变成了 "guest"
+	fmt.Printf("u2: %+v\n", u2)
 }
 
 // add 仅在 basics 包内可见

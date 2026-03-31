@@ -17,6 +17,10 @@
    - 首字母大小写控制访问权限
 4. [Java 与 Go 核心关键字对照表](./04_java_go_mapping.md)
    - Java 开发者迁移到 Go 时最重要的心智映射
+5. [深浅拷贝 (Copy vs Clone) 的底层逻辑](./05_copy_clone.md)
+   - Go 的一切皆值传递
+   - 包含引用类型（如 Slice）时的浅拷贝污染坑点
+   - 如何实现真正的 Deep Copy
 
 ## 运行方式
 在 `main.go` 中调用 `basics.Run()` 即可运行本课程代码。
