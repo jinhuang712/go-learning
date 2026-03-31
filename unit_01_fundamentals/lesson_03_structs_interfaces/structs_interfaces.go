@@ -42,6 +42,23 @@ func demoStructs() {
 	
 	fmt.Printf("Admin Name: %s (accessed directly)\n", admin.Name)
 	admin.Introduce()
+
+	fmt.Println("\n--- Anonymous Struct & Comparison ---")
+	// 匿名结构体
+	resp := struct {
+		Code int
+		Msg  string
+	}{
+		Code: 200,
+		Msg:  "success",
+	}
+	fmt.Printf("Anonymous struct: %+v\n", resp)
+
+	// 结构体比较
+	type Point struct{ X, Y int }
+	p1 := Point{1, 2}
+	p2 := Point{1, 2}
+	fmt.Printf("p1 == p2? %t\n", p1 == p2)
 }
 
 func demoInterfaces() {

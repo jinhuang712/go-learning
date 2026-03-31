@@ -43,11 +43,11 @@ func NewUser(name string) *User {
 }
 ```
 
-## 1.3 方法定义与接收者 (Receiver)：值 vs 指针
+## 1.3 方法定义与调用 (Receiver：值 vs 指针)
 在 Go 中，方法 (Method) 并不是写在 `struct` 大括号里面的！
 方法本质上只是一个带有特殊参数（接收者 Receiver）的普通函数，写在 `struct` 外部。
 
-**语法**: `func (接收者变量 接收者类型) 方法名(参数列表) 返回值 { ... }`
+**定义语法**: `func (接收者变量 接收者类型) 方法名(参数列表) 返回值 { ... }`
 
 ```go
 // --- 1. 值接收者 (Value Receiver) ---
@@ -62,6 +62,25 @@ func (u User) Introduce() {
 func (u *User) Birthday() {
     u.Age++ // 真正修改了外部对象的 Age
 }
+```
+
+**如何调用方法？(Go 的语法糖)**
+在 Java 中，如果你用值调用指针方法会报错。但在 Go 中，编译器极其聪明，它会自动帮你做解引用或取地址的操作：
+```go
+uVal := User{Name: "Alice", Age: 30}
+uPtr := &User{Name: "Bob", Age: 25}
+
+// 1. 值调用值方法 (正常)
+uVal.Introduce()
+
+// 2. 指针调用指针方法 (正常)
+uPtr.Birthday()
+
+// 3. 值调用指针方法 (编译器魔法)
+uVal.Birthday() // 编译器自动转换为: (&uVal).Birthday()
+
+// 4. 指针调用值方法 (编译器魔法)
+uPtr.Introduce() // 编译器自动转换为: (*uPtr).Introduce() (同时发生值拷贝)
 ```
 
 **核心抉择：什么时候用指针接收者？**
@@ -83,15 +102,32 @@ type Admin struct {
 - **覆盖 (Shadowing)**：如果 `Admin` 也定义了 `Name` 字段或同名方法，它会屏蔽 `User` 的。
 - **本质区别**：这只是语法糖！`Admin` 并不是 `User` 的子类，你**不能**把 `Admin` 对象传给需要 `User` 参数的函数。
 
-## 1.4 结构体标签 (Struct Tags)
-这是微服务中最常用的特性（JSON 序列化、ORM 映射、参数校验全靠它）。
-标签是在运行时通过反射 (Reflection) 读取的元数据。
+## 1.5 进阶：匿名结构体与比较 (Anonymous & Comparison)
+
+### 匿名结构体 (Anonymous Struct)
+在微服务中，当我们只需要临时组装一些数据（例如用于 JSON 序列化返回给前端，或在单元测试中定义 table-driven tests 的测试用例）时，可以不定义类型名，直接使用匿名结构体：
 
 ```go
-type Request struct {
-    // json: 序列化为 my_name, omitempty: 如果为空则不输出该字段
-    // binding: 框架(如 Gin)层的必填校验
-    Name string `json:"my_name,omitempty" binding:"required"`
-    Age  int    `json:"-"` // "-" 表示在 JSON 序列化时绝对忽略该字段
+// 直接声明并初始化一个匿名结构体
+response := struct {
+    Code int    `json:"code"`
+    Msg  string `json:"msg"`
+}{
+    Code: 200,
+    Msg:  "success",
 }
 ```
+
+### 结构体的可比较性 (Comparability)
+在 Java 中，如果你想用 `==` 比较两个对象的内容，你需要重写 `equals()` 方法，否则 `==` 只是比较内存地址。
+但在 Go 中，**只要结构体的所有字段都是可比较的（比如基础类型、指针），该结构体就是可以直接用 `==` 比较的！**
+
+```go
+type Point struct {
+    X, Y int
+}
+p1 := Point{1, 2}
+p2 := Point{1, 2}
+fmt.Println(p1 == p2) // true！Go 会自动逐个字段比较
+```
+**注意**：如果结构体中包含**不可比较的类型**（如 Slice、Map、Func），那么整个结构体就不能用 `==` 比较，编译会直接报错。如果你非要比较，需要使用反射 `reflect.DeepEqual()`。
