@@ -11,7 +11,54 @@
   - 放在**变量**前面（如 `*p`）：表示**解引用 (Dereference)**，即顺着这个内存地址，去读取或修改里面存放的实际数据。
 
 ### 2. Go 的“值传递” vs Java 的“引用”
-- **Java**: 对象变量默认是“引用”（你可以理解为隐式的指针）。当你把一个对象传给方法时，传递的是引用的拷贝，方法内可以直接修改对象的属性。
+**代码对比示例：**
+```java
+// Java 代码：
+class User {
+    public String name;
+    public int age;
+}
+
+public void updateUser(User user) {
+    user.name = "Alice"; // 修改的是原对象的属性
+    user = new User(); // 只是把局部变量user指向了新对象，不影响外部
+}
+
+public static void main(String[] args) {
+    User u = new User();
+    u.name = "Bob";
+    updateUser(u);
+    System.out.println(u.name); // 输出 "Alice"，原对象被修改了
+}
+```
+
+```go
+// Go 代码：
+type User struct {
+    Name string
+    Age  int
+}
+
+// 传值：拷贝整个结构体
+func updateUserByValue(u User) {
+    u.Name = "Alice" // 修改的是副本，不影响外部
+}
+
+// 传指针：拷贝内存地址
+func updateUserByPointer(u *User) {
+    u.Name = "Alice" // 通过地址修改原对象
+}
+
+func main() {
+    u := User{Name: "Bob"}
+    updateUserByValue(u)
+    fmt.Println(u.Name) // 输出 "Bob"，原对象没被修改
+    
+    updateUserByPointer(&u)
+    fmt.Println(u.Name) // 输出 "Alice"，原对象被修改
+}
+```
+- **Java**: 对象变量默认是“引用”（隐式的指针）。当你把一个对象传给方法时，传递的是引用的拷贝，方法内可以直接修改对象的属性。
 - **Go**: **一切皆为值传递 (Pass by Value)**。
   - 如果你传 `User`（结构体）：Go 会把整个结构体的数据**完整拷贝**一份给函数。你在函数内修改它，完全不影响外部的原对象。
   - 如果你传 `*User`（指针）：Go 拷贝的是“内存地址”（通常就 8 个字节）。你在函数内通过这个地址去修改属性，就能**真正修改到外部的原对象**。

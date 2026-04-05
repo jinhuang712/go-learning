@@ -2,16 +2,35 @@
 
 面向 Java 资深后端工程师的 Go 学习项目，目标是能在高并发、分布式微服务场景中独立阅读、设计、评审和优化 Go 代码。
 
+## 环境配置要求
+- Go 版本 >= 1.20
+- 开发工具推荐：GoLand / VSCode + Go 插件
+- 建议配置：开启 `gofmt` 自动格式化、`golangci-lint` 静态检查
+
+## Java-Go 核心概念速查表
+| Java 概念 | Go 对应概念 | 本质差异 |
+|----------|------------|----------|
+| Class 类 | Struct 结构体 + 方法 | Go没有继承，只有组合 |
+| Interface 接口 | Interface 接口 | Go是隐式实现，鸭子类型 |
+| extends 继承 | 匿名嵌入 (Anonymous Embedding) | 只是语法糖，不是父子类关系 |
+| Thread 线程 | Goroutine 协程 | 用户态调度，栈动态扩容，开销极小 |
+| Synchronized 同步锁 | sync.Mutex / sync.RWMutex | 更轻量，性能更高 |
+| Future / CompletableFuture | Channel | CSP并发模型，同步通信 |
+| Exception 异常 | error 接口 | 错误是普通值，必须显式处理 |
+| NullPointerException | 空指针解引用 panic | 只有未初始化的指针才会触发 |
+| 线程池 | Goroutine 池（可选，如ants） | Goroutine本身足够轻量，大部分场景不需要池 |
+
 ## 学习路线图 (Roadmap)
 
 以下是基于 `Unit -> Lesson -> Section` 三级架构规划的进阶学习路径，目标是达到大厂资深 Golang 微服务开发者水平。
 
 ### Unit 1: Go 基础与心智模型 (Fundamentals & Mental Model)
-- [x] Lesson 1: Basics (基础语法、控制流、可见性)
-- [x] Lesson 2: Collections (数组、切片与映射)
-- [x] Lesson 3: Structs & Interfaces (结构体、方法、接口隐式实现与组合)
-- [x] Lesson 4: Pointers & Value Semantics (指针与值语义)
-- [x] Lesson 5: Error Handling (错误处理、panic/recover、多返回值实战)
+- [x] [Lesson 1: Basics (基础语法、控制流、可见性)](./unit_01_fundamentals/lesson_01_basics/lesson_01_basics.md)
+- [x] [Lesson 2: Collections (数组、切片与映射)](./unit_01_fundamentals/lesson_02_collections/lesson_02_collections.md)
+- [x] [Lesson 3: Structs & Interfaces (结构体、方法、接口隐式实现与组合)](./unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.md)
+- [x] [Lesson 4: Pointers & Value Semantics (指针与值语义)](./unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.md)
+- [x] [Lesson 5: Error Handling (错误处理、panic/recover、多返回值实战)](./unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.md)
+- [ ] [Lesson 6: Java 转 Go 常见坑点专项](./unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.md)
 
 ### Unit 2: 并发与并行核心 (Concurrency & Parallelism)
 - [ ] Lesson 1: Goroutine & CSP 模型基础

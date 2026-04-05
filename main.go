@@ -7,6 +7,7 @@ import (
 	"go-learning/unit_01_fundamentals/lesson_03_structs_interfaces"
 	"go-learning/unit_01_fundamentals/lesson_04_pointers"
 	"go-learning/unit_01_fundamentals/lesson_05_error_handling"
+	"go-learning/unit_01_fundamentals/lesson_06_java_go_pitfalls"
 )
 
 func main() {
@@ -18,7 +19,7 @@ func main() {
 
 	// 运行第二课：集合类型
 	lesson_02_collections.Run()
-	
+
 	// 运行第三课：结构体与接口
 	lesson_03_structs_interfaces.Run()
 
@@ -27,6 +28,9 @@ func main() {
 
 	// 运行第五课：错误处理与 Panic/Recover
 	lesson_05_error_handling.Run()
+
+	// 运行第六课：Java 转 Go 常见坑点专项
+	lesson_06_java_go_pitfalls.Run()
 
 	fmt.Println("\n=================================")
 	fmt.Println("Course execution finished.")
