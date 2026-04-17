@@ -67,11 +67,11 @@ go-learning/
 
 ### Unit 2: 并发与并行核心 (Concurrency &amp; Parallelism)
 - [x] [Lesson 1: Goroutine &amp; CSP 模型基础](./unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.md)
-- [ ] Lesson 2: Channel 模式与底层原理 (无缓冲/有缓冲、关闭、广播)
-- [ ] Lesson 3: Select 多路复用与超时控制
-- [ ] Lesson 4: Context 传递与级联取消
-- [ ] Lesson 5: Sync 包 (Mutex, WaitGroup, Once, Map) 与 Atomic 原子操作
-- [ ] Lesson 6: Race Detector 数据竞争检测实战
+- [x] [Lesson 2: Channel 模式与底层原理 (无缓冲/有缓冲、关闭、广播)](./unit_02_concurrency/lesson_02_channel/lesson_02_channel.md)
+- [x] [Lesson 3: Select 多路复用与超时控制](./unit_02_concurrency/lesson_03_select/lesson_03_select.md)
+- [x] [Lesson 4: Context 传递与级联取消](./unit_02_concurrency/lesson_04_context/lesson_04_context.md)
+- [x] [Lesson 5: Sync 包 (Mutex, WaitGroup, Once, Map) 与 Atomic 原子操作](./unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.md)
+- [x] [Lesson 6: Race Detector 数据竞争检测实战](./unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.md)
 
 ### Unit 3: 底层原理与性能调优 (Under the Hood &amp; Performance)
 - [ ] Lesson 1: G-M-P 调度器模型与阻塞原理
