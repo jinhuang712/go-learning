@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>6.1 什么是数据竞争 · Lesson 6 Race Detector</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="./lesson_06_race_detector.html">L6 · Race Detector</a>
+    <div class="lesson-group">
+      <a href="./01_what_is_race.html" class="active">6.1 什么是 race</a>
+    </div>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_06_race_detector.html">L6 · Race Detector</a>
+      <span class="sep">/</span>
+      <span class="current">6.1 什么是 race</span>
+    </nav>
+
+    <h1>6.1 什么是数据竞争 (Data Race)</h1>
+
+    <h2 id="definition">1. 一句话定义</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">数据竞争的精确定义</span>
+      <strong>两个或多个 goroutine</strong> <strong>同时</strong>访问<strong>同一个内存位置</strong>,<strong>其中至少一个是写操作</strong>,且这两次访问之间<strong>不存在 happens-before 关系</strong>。
+    </div>
+
+    <p>这四个条件要<strong>同时满足</strong>。少了任何一个,都不构成 race:</p>
+
+    <ul>
+      <li>只有一个 goroutine 访问 → 不是 race(单线程串行)</li>
+      <li>大家只读 → 不是 race(只读共享 OK)</li>
+      <li>有写,但通过 Mutex / channel 建立了 happens-before → 不是 race(已同步)</li>
+    </ul>
+
+    <h2 id="example">2. 最小复现:<code>count++</code> 的悲剧</h2>
+
+    <pre class="language-go"><code>func DemoDataRace() {
+    var count int
+    var wg sync.WaitGroup
+
+    for i := 0; i &lt; 1000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            count++   // ⚠️ 数据竞争!1000 个 goroutine 同时读写
+        }()
+    }
+    wg.Wait()
+    fmt.Println(count) // 期望 1000,实际每次都不一样
+}</code></pre>
+
+    <p>关键洞察:<code>count++</code> 看起来是一行,实际是 <strong>3 个机器指令</strong>:</p>
+
+    <pre class="language-bash"><code>MOV count -&gt; reg     # 1. 读到寄存器
+ADD reg, 1           # 2. 自增
+MOV reg -&gt; count     # 3. 写回内存</code></pre>
+
+    <h2 id="interleaving">3. 交错读写的时序示意</h2>
+
+    <p>下图展示了两个 goroutine 各自执行 <code>count++</code>,但因为指令交错,最终 count 只增加了 1 而不是 2:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant G1 as Goroutine A
+    participant Mem as count (内存)
+    participant G2 as Goroutine B
+
+    Note over Mem: count = 0
+    G1->>Mem: 读 count → 0
+    Note right of G1: regA = 0
+    G2->>Mem: 读 count → 0
+    Note left of G2: regB = 0 (还没看到 A 的修改!)
+    G1->>G1: regA + 1 = 1
+    G2->>G2: regB + 1 = 1
+    G1->>Mem: 写 count = 1
+    Note over Mem: count = 1
+    G2->>Mem: 写 count = 1
+    Note over Mem: count = 1 ⚠️ 丢失更新!
+
+    Note over G1,G2: 两次 ++ 只生效了一次,这就是 lost update
+      </div>
+      <div class="diagram-caption">图 · 两个 goroutine 交错执行 <code>count++</code>,产生 lost update</div>
+    </div>
+
+    <p>而且,这只是<strong>最良性</strong>的 race。更糟的情况:</p>
+
+    <ul>
+      <li>读到<strong>半写</strong>的指针(64 位机器上极小概率,但 32 位指针非原子时会发生)→ panic 或 segfault。</li>
+      <li>编译器看到没有同步,可能<strong>把读移出循环</strong>(寄存器缓存),让你永远看不到对方的修改。</li>
+      <li>CPU 乱序执行 + store buffer 让<strong>写的可见顺序</strong>和代码顺序不一致。</li>
+    </ul>
+
+    <h2 id="happens-before">4. Go 内存模型 · happens-before</h2>
+
+    <p>「同时访问」这个词在分布式时钟下其实没有绝对意义。Go 用 <strong>happens-before</strong> 来定义「确定的先后关系」:</p>
+
+    <ul>
+      <li>同一个 goroutine 内部,代码顺序 = happens-before 顺序。</li>
+      <li>跨 goroutine,必须通过<strong>同步原语</strong>建立 happens-before:
+        <ul>
+          <li><code>go f()</code>:<code>go</code> 语句 happens-before f 的第一行。</li>
+          <li><code>chan</code> send 前的所有代码 happens-before 对应 receive 后的代码。</li>
+          <li><code>Mutex.Unlock</code> happens-before 下一次 <code>Lock</code> 返回。</li>
+          <li><code>WaitGroup.Done</code> happens-before <code>Wait</code> 返回。</li>
+          <li><code>sync.Once</code> 的 <code>Do(f)</code> 中的 f happens-before 所有后续 Do 返回。</li>
+          <li><code>atomic.Store</code> / <code>atomic.Load</code> 配合使用,建立 happens-before。</li>
+        </ul>
+      </li>
+    </ul>
+
+    <p>下面这张图把 happens-before 模型可视化:有了 Mutex 这条「桥」,跨 goroutine 的读写之间就有了确定的先后:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+    subgraph GA["Goroutine A"]
+      direction TB
+      A1["a1: count = 5"] --> A2["a2: mu.Unlock()"]
+    end
+
+    subgraph GB["Goroutine B"]
+      direction TB
+      B1["b1: mu.Lock()"] --> B2["b2: read count"]
+    end
+
+    A2 -. happens-before .-> B1
+
+    A1 -. "通过 Unlock→Lock 桥<br/>建立 happens-before" .-> B2
+
+    note1["✅ B2 一定能看到 a1 写入的 5<br/>因为 a1 hb a2 hb b1 hb b2"]:::ok
+
+    A2 --> note1
+    B1 --> note1
+
+    classDef ok fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+    classDef bad fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+
+    class A1,A2,B1,B2 default
+      </div>
+      <div class="diagram-caption">图 · happens-before:Mutex Unlock → Lock 建立跨 goroutine 的「桥」</div>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-title">为什么 happens-before 是「桥」?</span>
+      没有同步原语,两个 goroutine 的指令顺序完全由调度器和 CPU 决定——
+      A 写的 <code>count = 5</code> 可能<strong>永远</strong>不被 B 看到(寄存器缓存、store buffer 没刷新)。
+      有了 <code>Unlock → Lock</code> 这道屏障,Go runtime 保证内存可见性:Lock 返回时,Unlock 前的所有写入都<strong>对当前 goroutine 可见</strong>。
+    </div>
+
+    <h2 id="detect">5. 用 <code>-race</code> 实战检测</h2>
+
+    <p>在<strong>测试</strong> / <strong>build</strong> / <strong>run</strong> 时加 <code>-race</code> 标志:</p>
+
+    <pre class="language-bash"><code>go test -race ./unit_02_concurrency/lesson_06_race_detector
+go run  -race main.go
+go build -race -o bin/app .</code></pre>
+
+    <p>运行刚才那段 <code>count++</code>,会看到这样的输出:</p>
+
+    <pre class="language-bash"><code>==================
+WARNING: DATA RACE
+Read at 0x00c0000a4008 by goroutine 7:
+  main.DemoDataRace.func1()
+      race_detector.go:29 +0x39
+
+Previous write at 0x00c0000a4008 by goroutine 6:
+  main.DemoDataRace.func1()
+      race_detector.go:29 +0x4e
+
+Goroutine 7 (running) created at:
+  main.DemoDataRace()
+      race_detector.go:27 +0xc8
+==================</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">race detector 怎么工作</span>
+      race detector 基于 Google 的 <strong>ThreadSanitizer (TSAN)</strong>:
+      <ul>
+        <li>它给<strong>每次内存访问</strong>插桩,记录访问者 goroutine ID + 当前的「vector clock」(每个 goroutine 一个时钟)。</li>
+        <li>每次同步操作(Unlock、channel send),更新 vector clock。</li>
+        <li>检测两次访问的 clock 是否有 happens-before 关系,没有 + 至少一写 → 报告 race。</li>
+      </ul>
+      <p>代价是 <strong>5-10x 内存</strong>、<strong>2-20x CPU</strong>。开发 / CI 阶段开,<strong>不要在生产环境开</strong>。</p>
+    </div>
+
+    <h2 id="fix">6. 修复数据竞争的 4 种手段</h2>
+
+    <h3>方案 A · Mutex(最直接)</h3>
+    <pre class="language-go"><code>var count int
+var mu sync.Mutex
+
+go func() {
+    mu.Lock()
+    count++
+    mu.Unlock()
+}()</code></pre>
+
+    <h3>方案 B · Atomic(最快)</h3>
+    <pre class="language-go"><code>var count int64
+
+go func() {
+    atomic.AddInt64(&count, 1)
+}()</code></pre>
+
+    <h3>方案 C · Channel(最 Go-style)</h3>
+    <pre class="language-go"><code>ch := make(chan int, 1000)
+for i := 0; i &lt; 1000; i++ {
+    go func() { ch &lt;- 1 }()
+}
+var count int
+for i := 0; i &lt; 1000; i++ {
+    count += &lt;-ch
+}</code></pre>
+
+    <h3>方案 D · 不可变(根除)</h3>
+    <p>如果数据在 goroutine 启动后<strong>永不修改</strong>,就根本不会有 race。常见做法:</p>
+    <ul>
+      <li>启动前一次性算好,只读分发。</li>
+      <li>每次更新都<strong>替换整个对象</strong>(配合 <code>atomic.Value</code> 做 publish)。</li>
+      <li>函数式风格:用「返回新值」代替「修改旧值」。</li>
+    </ul>
+
+    <h2 id="common-scenes">7. 5 种典型 race 场景</h2>
+
+    <ol>
+      <li><strong>未同步的 map 读写</strong>(Go map 本身不是并发安全的,会直接 panic)</li>
+      <li><strong>结构体字段并发读写</strong>(尤其是包含 slice / pointer 的字段)</li>
+      <li><strong>计数器非原子</strong>(<code>count++</code> / <code>++count</code>)</li>
+      <li><strong>闭包变量捕获</strong>:<code>for i := range xs { go f(i) }</code> 中的 i 共享(Go 1.22 已修复)</li>
+      <li><strong>切片 append 并发</strong>:append 可能触发底层数组 reallocate,多 goroutine append 同一 slice 等于读写同一 header</li>
+    </ol>
+
+    <h2 id="limits">8. Race Detector 的局限</h2>
+
+    <div class="callout warn">
+      <span class="callout-title">三个真相</span>
+      <ul>
+        <li><strong>只能发现「执行到的」race</strong>。如果某段并发代码在测试中没跑到,race detector 永远不会报。所以<strong>压力测试 + 模糊测试</strong>是必要补充。</li>
+        <li><strong>性能代价大</strong>。生产开 <code>-race</code> 等于自杀,只在 CI / staging 开。</li>
+        <li><strong>对 <code>sync/atomic</code> 有特殊语义</strong>。把 atomic 和普通读写混用,race detector 仍能识别;但如果你用 unsafe.Pointer 绕过,它就盲了。</li>
+      </ul>
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>把上面 <code>DemoDataRace</code> 直接跑一遍,再加上 <code>-race</code> 跑一遍,对比输出。</li>
+      <li>用 4 种方案(Mutex / atomic / channel / 不可变)<strong>分别修复</strong>,各自跑 <code>-race</code> 验证。</li>
+      <li>挑战:写一段「<strong>看起来在同步但其实没有</strong>」的代码——比如用 <code>time.Sleep(100ms)</code> 自以为足够等待——然后用 race detector 揭穿它。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_06_race_detector.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L6 总览</div>
+      </a>
+      <a class="next" href="../../README.html">
+        <div class="label">回首页 →</div>
+        <div class="title">⬢ 回首页 · 继续 Unit 3</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

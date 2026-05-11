@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3.1 结构体 Structs 深度剖析 · Lesson 3 Struct & Interface</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="./lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <div class="lesson-group">
+      <a href="./01_struct_internals.html" class="active">3.1 Struct 深度</a>
+      <a href="./02_interface_internals.html">3.2 Interface 内部</a>
+    </div>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+      <span class="sep">/</span>
+      <span class="current">3.1 Struct 深度</span>
+    </nav>
+
+    <h1>3.1 结构体 (Structs) 深度剖析</h1>
+
+    <p>Go 语言抛弃了传统的基于 Class 的面向对象体系,而是退回到了类似 C 语言的 <code>struct</code>。但这并不意味着 Go 不支持面向对象,它只是换了一种<strong>更轻量、更组合化</strong>的方式。</p>
+
+    <h2 id="memory">1.1 结构体的本质与内存布局</h2>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      在 Java 中,对象是分配在堆上的,变量里存的只是对象的引用(指针)。
+      但在 Go 中,<strong><code>struct</code> 默认是值类型,它的字段在内存中是连续分配的</strong>。
+    </div>
+
+    <pre class="language-go"><code>type User struct {
+    Age  int8   // 1 byte
+    Role string // 16 bytes (pointer + len)
+    Name string // 16 bytes
+}</code></pre>
+
+    <h3>内存对齐与性能</h3>
+    <p>在极高并发的微服务中,结构体的字段顺序会影响其在内存中的大小(由于 CPU 内存对齐机制)。为了节省内存,最佳实践是<strong>将占用空间相同或相近的字段放在一起,按字段大小从大到小排序</strong>。</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="12">
+        <!-- BAD LAYOUT -->
+        <text x="180" y="22" fill="#f38ba8" text-anchor="middle" font-weight="700">❌ 差布局 (40 bytes) · 小字段插在大字段之间</text>
+        <text x="20" y="46" fill="#cdd6f4">struct { Age int8; Role string; Name string }</text>
+
+        <!-- Age + padding -->
+        <rect x="20" y="60" width="30" height="40" fill="#f38ba8" stroke="#cdd6f4" />
+        <text x="35" y="84" fill="#11111b" text-anchor="middle" font-weight="700">Age</text>
+        <text x="35" y="115" fill="#f38ba8" text-anchor="middle" font-size="10">1B</text>
+
+        <rect x="50" y="60" width="180" height="40" fill="#45475a" stroke="#6c7086" stroke-dasharray="4,3" />
+        <text x="140" y="84" fill="#6c7086" text-anchor="middle" font-style="italic">padding (7 bytes)</text>
+        <text x="140" y="115" fill="#6c7086" text-anchor="middle" font-size="10">填充浪费</text>
+
+        <!-- Role string -->
+        <rect x="230" y="60" width="220" height="40" fill="#89b4fa" stroke="#cdd6f4" />
+        <text x="340" y="84" fill="#11111b" text-anchor="middle" font-weight="700">Role (string · 16B)</text>
+        <text x="340" y="115" fill="#89b4fa" text-anchor="middle" font-size="10">ptr + len</text>
+
+        <!-- Name string -->
+        <rect x="450" y="60" width="220" height="40" fill="#cba6f7" stroke="#cdd6f4" />
+        <text x="560" y="84" fill="#11111b" text-anchor="middle" font-weight="700">Name (string · 16B)</text>
+        <text x="560" y="115" fill="#cba6f7" text-anchor="middle" font-size="10">ptr + len</text>
+
+        <text x="360" y="140" fill="#f38ba8" text-anchor="middle" font-size="11">1 + 7(padding) + 16 + 16 = 40 字节</text>
+
+        <!-- GOOD LAYOUT -->
+        <text x="180" y="180" fill="#a6e3a1" text-anchor="middle" font-weight="700">✅ 好布局 (40 → 仍 40B,但若有更多小字段可省更多)</text>
+        <text x="20" y="204" fill="#cdd6f4">struct { Role string; Name string; Age int8 }   // 大→小排序</text>
+
+        <rect x="20" y="218" width="220" height="40" fill="#89b4fa" stroke="#cdd6f4" />
+        <text x="130" y="242" fill="#11111b" text-anchor="middle" font-weight="700">Role (16B)</text>
+
+        <rect x="240" y="218" width="220" height="40" fill="#cba6f7" stroke="#cdd6f4" />
+        <text x="350" y="242" fill="#11111b" text-anchor="middle" font-weight="700">Name (16B)</text>
+
+        <rect x="460" y="218" width="30" height="40" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="475" y="242" fill="#11111b" text-anchor="middle" font-weight="700">Age</text>
+
+        <rect x="490" y="218" width="180" height="40" fill="#45475a" stroke="#6c7086" stroke-dasharray="4,3" />
+        <text x="580" y="242" fill="#6c7086" text-anchor="middle" font-style="italic">tail padding (7B)</text>
+
+        <text x="360" y="282" fill="#a6e3a1" text-anchor="middle" font-size="11">大→小排序,padding 只剩末尾一段</text>
+        <text x="360" y="300" fill="#fab387" text-anchor="middle" font-size="11">真正能省内存的场景是字段更多时;此例展示思想</text>
+      </svg>
+      <div class="diagram-caption">图 · 字段顺序影响 size:小字段插在大字段之间会产生大量 padding,按从大到小排可避免</div>
+    </div>
+
+    <h2 id="init">1.2 结构体的创建与初始化</h2>
+    <p>Go 没有构造函数 (Constructor) 的概念,我们通常通过字面量初始化,或者手写一个 <code>NewXXX</code> 函数来模拟构造函数。</p>
+
+    <pre class="language-go"><code>// 方式 1: 零值初始化 (所有字段都是默认的零值)
+var u1 User
+
+// 方式 2: 键值对字面量初始化 (推荐,清晰且不受字段顺序影响)
+u2 := User{
+    Name: "Alice",
+    Age:  30,
+    // 未写出的 Role 会自动被赋值为空字符串 ""
+}
+
+// 方式 3: 返回结构体指针 (微服务中最常用)
+u3 := &User{Name: "Bob"}
+// 等价于: tmp := User{...}; u3 := &tmp
+
+// 方式 4: 模拟工厂方法 (当初始化逻辑比较复杂时)
+func NewUser(name string) *User {
+    return &User{
+        Name: name,
+        Role: "Guest", // 默认值
+    }
+}</code></pre>
+
+    <h2 id="methods">1.3 方法定义与调用 (Receiver:值 vs 指针)</h2>
+    <p>在 Go 中,方法 (Method) 并<strong>不是写在 <code>struct</code> 大括号里面的</strong>!
+    方法本质上只是一个带有特殊参数(接收者 Receiver)的普通函数,写在 <code>struct</code> 外部。</p>
+
+    <p><strong>定义语法</strong>: <code>func (接收者变量 接收者类型) 方法名(参数列表) 返回值 { ... }</code></p>
+
+    <pre class="language-go"><code>// --- 1. 值接收者 (Value Receiver) ---
+// 调用时会发生整个对象的拷贝!
+func (u User) Introduce() {
+    fmt.Printf("Hi, I am %s\n", u.Name)
+    u.Age = 99 // 这里的修改只会影响拷贝的副本,对原对象无效!
+}
+
+// --- 2. 指针接收者 (Pointer Receiver) ---
+// 调用时只传递指针,效率高,且能真正修改对象状态。
+func (u *User) Birthday() {
+    u.Age++ // 真正修改了外部对象的 Age
+}</code></pre>
+
+    <h3>如何调用方法?(Go 的语法糖)</h3>
+    <p>在 Java 中,如果你用值调用指针方法会报错。但在 Go 中,编译器极其聪明,它会自动帮你做<strong>解引用或取地址</strong>的操作:</p>
+
+    <pre class="language-go"><code>uVal := User{Name: "Alice", Age: 30}
+uPtr := &User{Name: "Bob", Age: 25}
+
+// 1. 值调用值方法 (正常)
+uVal.Introduce()
+
+// 2. 指针调用指针方法 (正常)
+uPtr.Birthday()
+
+// 3. 值调用指针方法 (编译器魔法)
+uVal.Birthday() // 编译器自动转换为: (&uVal).Birthday()
+
+// 4. 指针调用值方法 (编译器魔法)
+uPtr.Introduce() // 编译器自动转换为: (*uPtr).Introduce() (同时发生值拷贝)</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  C["调用方"] --> Q{"接收者形式"}
+  Q -->|"值 receiver<br/>func (u User)"| V["发生整块结构体拷贝<br/>方法内修改 ≠ 原对象"]:::warn
+  Q -->|"指针 receiver<br/>func (u *User)"| P["只拷贝 8B 指针<br/>方法内修改 = 原对象"]:::good
+
+  V --> R1["✅ 小对象 / 不需修改 / 想要不可变性"]
+  P --> R2["✅ 需修改状态<br/>✅ 大结构体<br/>✅ 含 sync.Mutex<br/>✅ 大厂统一规范"]:::good
+
+  classDef good fill:#a6e3a1,color:#11111b;
+  classDef warn fill:#f9e2af,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 值 receiver vs 指针 receiver 的决策树</div>
+    </div>
+
+    <h3>核心抉择:什么时候用指针接收者?</h3>
+    <ol>
+      <li><strong>需要修改对象状态</strong>时(如 <code>Birthday</code>)。</li>
+      <li><strong>对象体积很大</strong>时。如果使用“值接收者”,每次调用方法都会把整个庞大的结构体在内存中完整拷贝一份;而使用“指针接收者”,每次调用只拷贝一个 8 字节的指针地址,从而<strong>避免了值拷贝的性能开销</strong>。</li>
+      <li>对象内部包含 <code>sync.Mutex</code> 等<strong>不可被拷贝的字段</strong>时。</li>
+      <li><strong>大厂规范</strong>:为了统一行为,如果一个结构体有一个方法是指针接收者,那么<strong>它的所有方法都应该是指针接收者</strong>。</li>
+    </ol>
+
+    <h2 id="composition">1.4 组合优于继承 (Composition over Inheritance)</h2>
+    <p>Go 没有 <code>extends</code> 关键字,它使用<strong>匿名嵌入 (Anonymous Embedding)</strong> 来实现代码复用。</p>
+
+    <pre class="language-go"><code>type Admin struct {
+    User // 匿名嵌入
+    Level int
+}</code></pre>
+
+    <ul>
+      <li><strong>字段提升 (Promoted Fields)</strong>:你可以直接通过 <code>admin.Name</code> 访问内嵌的 <code>User</code> 的字段,就像继承一样。</li>
+      <li><strong>覆盖 (Shadowing)</strong>:如果 <code>Admin</code> 也定义了 <code>Name</code> 字段或同名方法,它会屏蔽 <code>User</code> 的。</li>
+      <li><strong>本质区别</strong>:这只是语法糖!<code>Admin</code> 并不是 <code>User</code> 的子类,你<strong>不能</strong>把 <code>Admin</code> 对象传给需要 <code>User</code> 参数的函数。</li>
+    </ul>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  A["Admin"]:::comp
+  U["User<br/>(被嵌入)"]:::base
+  A --> U
+  A --> L["Level int"]:::field
+
+  U --> F1["Name string"]
+  U --> F2["Age int"]
+  U --> M1["Introduce()"]
+  U --> M2["Birthday()"]
+
+  A -. "字段提升<br/>admin.Name 直接可用" .-> F1
+  A -. "方法提升<br/>admin.Birthday() 直接可调用" .-> M2
+  A -. "❌ Admin ≠ User 子类<br/>不能直接传给 func(u User)" .-> X["类型不兼容"]:::bad
+
+  classDef comp fill:#cba6f7,color:#11111b;
+  classDef base fill:#89b4fa,color:#11111b;
+  classDef field fill:#94e2d5,color:#11111b;
+  classDef bad fill:#f38ba8,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 匿名嵌入:字段/方法被自动提升,但<strong>类型上不是继承关系</strong></div>
+    </div>
+
+    <h2 id="anonymous">1.5 进阶:匿名结构体与比较 (Anonymous & Comparison)</h2>
+
+    <h3>匿名结构体 (Anonymous Struct)</h3>
+    <p>在微服务开发中,我们经常需要临时组装一些数据(例如构造一个复杂的 JSON 响应给前端)。
+    如果这个数据结构只在这一个函数里用到,专门去外面写一个 <code>type XxxResponse struct {...}</code> 会让代码显得非常臃肿。</p>
+
+    <p>此时,我们可以直接在代码执行处“<strong>就地声明类型 + 就地初始化赋值</strong>”,这就是匿名结构体。
+    你可以把它理解为把普通的 <code>Type{赋值}</code> 中的 <code>Type</code>,替换成了一大坨完整的结构体定义。</p>
+
+    <pre class="language-go"><code>// 拆解来看,前面这部分是“类型定义” (也就是它长什么样):
+// struct {
+//     Code int    `json:"code"`
+//     Msg  string `json:"msg"`
+// }
+//
+// 后面紧跟的 {} 是对这个类型的“初始化赋值”:
+// {
+//     Code: 200,
+//     Msg:  "success",
+// }
+
+// 组合在一起的完整写法:
+response := struct {
+    Code int    `json:"code"`
+    Msg  string `json:"msg"`
+}{
+    Code: 200,
+    Msg:  "success",
+}
+
+// 现在你可以直接把它序列化成 JSON 返回给前端
+// jsonBytes, _ := json.Marshal(response)</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对比</span>
+      这有点像在 Java 中为了拼装一个一次性的复杂 JSON 结果,不去建一个 DTO 类,而是直接 <code>new HashMap&lt;String, Object&gt;()</code> 往里塞数据。
+      但 Go 的匿名结构体比 Map 更好,因为它有<strong>强类型约束</strong>和<strong>编译期检查</strong>。
+    </div>
+
+    <h3>结构体的可比较性 (Comparability)</h3>
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      在 Java 中,如果你想用 <code>==</code> 比较两个对象的内容,你需要重写 <code>equals()</code> 方法,否则 <code>==</code> 只是比较内存地址。
+      但在 Go 中,<strong>只要结构体的所有字段都是可比较的(比如基础类型、指针),该结构体就是可以直接用 <code>==</code> 比较的!</strong>
+    </div>
+
+    <pre class="language-go"><code>type Point struct {
+    X, Y int
+}
+p1 := Point{1, 2}
+p2 := Point{1, 2}
+fmt.Println(p1 == p2) // true!Go 会自动逐个字段比较</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">注意</span>
+      如果结构体中包含<strong>不可比较的类型</strong>(如 Slice、Map、Func),那么整个结构体就不能用 <code>==</code> 比较,<strong>编译会直接报错</strong>。
+      如果你非要比较,需要使用反射 <code>reflect.DeepEqual()</code>。
+    </div>
+
+    <div class="callout note">
+      <span class="callout-title">疑问:结构体还能包含 Func?</span>
+      是的!不要把“方法 (Method)”和“字段 (Field)”搞混。
+      <ul style="margin:6px 0;">
+        <li><strong>方法</strong>是绑定在类型外面的(<code>func (u User) Do()</code>)。</li>
+        <li><strong>字段</strong>是结构体内部的数据。因为 Go 中的函数是“一等公民”,所以你可以定义一个字段的类型为 <code>func()</code>,用来存储一个回调函数 (Callback)。</li>
+      </ul>
+      <pre class="language-go" style="margin-top:6px;"><code>type Task struct {
+    Name     string
+    Callback func(err error) // 这是一个字段,存放一个函数指针
+}</code></pre>
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>定义一个 <code>struct { A bool; B int64; C bool; D int32 }</code>,用 <code>unsafe.Sizeof</code> 输出 size;重新排序字段后再测一次,理解 padding。</li>
+      <li>写一个 <code>NewUser(name string) *User</code> 工厂方法,设置默认 <code>Role="Guest"</code>。</li>
+      <li>定义 <code>Admin{ User; Level int }</code>,实现一个 <code>admin.Promote()</code> 方法(指针 receiver),验证字段提升与方法提升。</li>
+      <li>构造一个匿名结构体响应并用 <code>encoding/json</code> 序列化,对比与命名结构体的可读性差异。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_03_structs_interfaces.html">
+        <div class="label">← 上一页</div>
+        <div class="title">Lesson 3 总览</div>
+      </a>
+      <a class="next" href="./02_interface_internals.html">
+        <div class="label">下一页 →</div>
+        <div class="title">3.2 · Interface 内部</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

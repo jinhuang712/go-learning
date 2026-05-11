@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2.5 Channel 方向约束 · Lesson 2 · Channel 模式 · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="./lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <div class="lesson-group">
+      <a href="./01_channel_basics.html">2.1 Channel 基础</a>
+      <a href="./02_unbuffered_channel.html">2.2 无缓冲</a>
+      <a href="./03_buffered_channel.html">2.3 有缓冲</a>
+      <a href="./04_channel_close.html">2.4 关闭</a>
+      <a href="./05_channel_direction.html" class="active">2.5 单向</a>
+      <a href="./06_producer_consumer.html">2.6 生产者消费者</a>
+    </div>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+      <span class="sep">/</span>
+      <span class="current">2.5 方向约束</span>
+    </nav>
+
+    <h1>2.5 Channel 方向约束</h1>
+
+    <p>Channel 类型在 Go 里有三种方向标注,提供<strong>编译期</strong>的方向安全:</p>
+
+    <table>
+      <thead><tr><th>类型</th><th>含义</th><th>允许的操作</th></tr></thead>
+      <tbody>
+        <tr><td><code>chan T</code></td><td>双向</td><td>send + recv + close</td></tr>
+        <tr><td><code>chan&lt;- T</code></td><td>只发送</td><td>send + close</td></tr>
+        <tr><td><code>&lt;-chan T</code></td><td>只接收</td><td>recv</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout note">
+      <span class="callout-title">记忆口诀:箭头指向 chan</span>
+      <code>chan&lt;-</code> 箭头<strong>指向 chan</strong>(数据进 chan) = 只发送;<br/>
+      <code>&lt;-chan</code> 箭头<strong>从 chan 出来</strong> = 只接收。
+    </div>
+
+    <h2 id="visual">1. 三种方向可视化</h2>
+
+    <div class="diagram">
+      <svg viewBox="0 0 880 360" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrDirSend" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#a6e3a1" />
+          </marker>
+          <marker id="arrDirRecv" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#fab387" />
+          </marker>
+          <marker id="arrDirBoth" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#cba6f7" />
+          </marker>
+        </defs>
+        <rect x="0" y="0" width="880" height="360" fill="#1e1e2e" />
+        <text x="440" y="30" fill="#cdd6f4" text-anchor="middle" font-size="16" font-weight="700">Channel 三种方向约束</text>
+
+        <!-- Bidirectional -->
+        <rect x="40" y="70" width="260" height="220" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2" />
+        <text x="170" y="100" fill="#cba6f7" text-anchor="middle" font-weight="700">chan T</text>
+        <text x="170" y="120" fill="#bac2de" text-anchor="middle" font-size="11">双向 (默认)</text>
+
+        <rect x="60" y="145" width="80" height="50" rx="4" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="100" y="172" fill="#11111b" text-anchor="middle" font-size="11">goroutine</text>
+        <rect x="200" y="145" width="80" height="50" rx="4" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="240" y="172" fill="#11111b" text-anchor="middle" font-size="11">goroutine</text>
+        <line x1="142" y1="160" x2="198" y2="160" stroke="#cba6f7" stroke-width="2" marker-end="url(#arrDirBoth)" />
+        <line x1="198" y1="180" x2="142" y2="180" stroke="#cba6f7" stroke-width="2" marker-end="url(#arrDirBoth)" />
+
+        <text x="170" y="225" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ send: ch &lt;- v</text>
+        <text x="170" y="243" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ recv: &lt;-ch</text>
+        <text x="170" y="261" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ close: close(ch)</text>
+        <text x="170" y="280" fill="#bac2de" text-anchor="middle" font-size="11">make 创建时默认</text>
+
+        <!-- Send-only -->
+        <rect x="320" y="70" width="260" height="220" rx="8" fill="#181825" stroke="#a6e3a1" stroke-width="2" />
+        <text x="450" y="100" fill="#a6e3a1" text-anchor="middle" font-weight="700">chan&lt;- T</text>
+        <text x="450" y="120" fill="#bac2de" text-anchor="middle" font-size="11">只发送 (sender 视角)</text>
+
+        <rect x="340" y="145" width="80" height="50" rx="4" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="380" y="172" fill="#11111b" text-anchor="middle" font-size="11">sender</text>
+        <rect x="480" y="145" width="80" height="50" rx="4" fill="#45475a" stroke="#cdd6f4" />
+        <text x="520" y="172" fill="#cdd6f4" text-anchor="middle" font-size="11">channel</text>
+        <line x1="422" y1="170" x2="478" y2="170" stroke="#a6e3a1" stroke-width="3" marker-end="url(#arrDirSend)" />
+
+        <text x="450" y="225" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ send: ch &lt;- v</text>
+        <text x="450" y="243" fill="#f38ba8" text-anchor="middle" font-size="11">❌ recv: 编译错误</text>
+        <text x="450" y="261" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ close: close(ch)</text>
+        <text x="450" y="280" fill="#bac2de" text-anchor="middle" font-size="11">用于函数参数,约束 sender 端</text>
+
+        <!-- Receive-only -->
+        <rect x="600" y="70" width="260" height="220" rx="8" fill="#181825" stroke="#fab387" stroke-width="2" />
+        <text x="730" y="100" fill="#fab387" text-anchor="middle" font-weight="700">&lt;-chan T</text>
+        <text x="730" y="120" fill="#bac2de" text-anchor="middle" font-size="11">只接收 (receiver 视角)</text>
+
+        <rect x="620" y="145" width="80" height="50" rx="4" fill="#45475a" stroke="#cdd6f4" />
+        <text x="660" y="172" fill="#cdd6f4" text-anchor="middle" font-size="11">channel</text>
+        <rect x="760" y="145" width="80" height="50" rx="4" fill="#fab387" stroke="#cdd6f4" />
+        <text x="800" y="172" fill="#11111b" text-anchor="middle" font-size="11">receiver</text>
+        <line x1="702" y1="170" x2="758" y2="170" stroke="#fab387" stroke-width="3" marker-end="url(#arrDirRecv)" />
+
+        <text x="730" y="225" fill="#f38ba8" text-anchor="middle" font-size="11">❌ send: 编译错误</text>
+        <text x="730" y="243" fill="#a6e3a1" text-anchor="middle" font-size="11">✅ recv: &lt;-ch</text>
+        <text x="730" y="261" fill="#f38ba8" text-anchor="middle" font-size="11">❌ close: 编译错误</text>
+        <text x="730" y="280" fill="#bac2de" text-anchor="middle" font-size="11">用于函数返回值或参数</text>
+
+        <!-- legend -->
+        <rect x="40" y="305" width="800" height="40" rx="6" fill="#181825" stroke="#45475a" />
+        <text x="60" y="328" fill="#94e2d5" font-weight="700">转换:</text>
+        <text x="120" y="328" fill="#cdd6f4">双向 chan T 可<strong style="color:#a6e3a1">隐式转</strong>成 chan&lt;- T 或 &lt;-chan T,但反过来不行 (单向不能转回双向)</text>
+      </svg>
+      <div class="diagram-caption">图 · chan / chan&lt;- / &lt;-chan 三种方向约束的语义和编译期检查</div>
+    </div>
+
+    <h2 id="why">2. 为什么需要方向约束?</h2>
+
+    <p>方向约束是 Go 提供的<strong>类型级别的契约</strong>。它能:</p>
+    <ul>
+      <li><strong>防止误操作</strong>:函数声称只发送,就保证不会误读;反之亦然</li>
+      <li><strong>编译期检查</strong>:错误第一时间被发现,不是运行时 panic</li>
+      <li><strong>API 表达更清晰</strong>:看函数签名就能猜出语义,无需翻文档</li>
+    </ul>
+
+    <h2 id="example">3. 三种典型用法</h2>
+
+    <h3>用法 1:函数参数约束职责</h3>
+    <pre class="language-go"><code>// producer 只能发送,编译保证不会 read 这个 channel
+func producer(ch chan&lt;- int) {
+    for i := 0; i &lt; 5; i++ {
+        ch &lt;- i
+    }
+    close(ch)
+    // v := &lt;-ch  // ❌ 编译错误:invalid operation: receive from send-only chan
+}
+
+// consumer 只能接收
+func consumer(ch &lt;-chan int) {
+    for v := range ch {
+        fmt.Println(v)
+    }
+    // ch &lt;- 1  // ❌ 编译错误
+    // close(ch)  // ❌ 编译错误
+}
+
+func main() {
+    ch := make(chan int)  // 创建必须是双向 chan int
+    go producer(ch)        // 隐式转换为 chan&lt;- int
+    consumer(ch)           // 隐式转换为 &lt;-chan int
+}</code></pre>
+
+    <h3>用法 2:工厂函数返回只读 channel</h3>
+    <pre class="language-go"><code>// 调用者拿到的 channel 不能误关闭 / 误发送
+func numbers() &lt;-chan int {
+    ch := make(chan int)
+    go func() {
+        defer close(ch)
+        for i := 0; i &lt; 10; i++ {
+            ch &lt;- i
+        }
+    }()
+    return ch  // 返回时双向 → 只读
+}
+
+func main() {
+    for v := range numbers() {
+        fmt.Println(v)
+    }
+}</code></pre>
+
+    <h3>用法 3:Pipeline 中明确每一段的方向</h3>
+    <pre class="language-go"><code>// stage1: 只输出
+func gen(nums ...int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for _, n := range nums { out &lt;- n }
+    }()
+    return out
+}
+
+// stage2: 输入只读,输出只写——清晰表达数据流向
+func sq(in &lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for n := range in { out &lt;- n * n }
+    }()
+    return out
+}
+
+func main() {
+    for v := range sq(gen(2, 3, 4)) {  // pipeline
+        fmt.Println(v)  // 4, 9, 16
+    }
+}</code></pre>
+
+    <h2 id="java-vs-go">4. Java 视角对照</h2>
+
+    <div class="callout java">
+      <span class="callout-title">Java 没有方向约束</span>
+      Java 的 <code>BlockingQueue</code> 接口同时提供 <code>put</code> 和 <code>take</code>,没办法在<strong>编译期</strong>限制某个方法只能用一边。
+      要做到类似效果,得用接口拆分 (如 <code>Producer&lt;T&gt;</code> / <code>Consumer&lt;T&gt;</code>) 然后强制类型转换——非常繁琐。
+      Go 的 <code>chan&lt;-</code> / <code>&lt;-chan</code> 是<strong>语言级别免费提供</strong>的契约。
+    </div>
+
+    <h2 id="convert">5. 双向 ⇄ 单向 转换规则</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  B[chan T<br/>双向]:::ok
+  S[chan&lt;- T<br/>只发送]:::send
+  R[&lt;-chan T<br/>只接收]:::recv
+
+  B -- "隐式转换 ✅" --> S
+  B -- "隐式转换 ✅" --> R
+  S -. "❌ 无法转回双向" .-> B
+  R -. "❌ 无法转回双向" .-> B
+  S -. "❌ 不能互转" .-> R
+
+  classDef ok fill:#cba6f7,color:#11111b;
+  classDef send fill:#a6e3a1,color:#11111b;
+  classDef recv fill:#fab387,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 方向约束的转换关系——双向可降级,单向不能升级</div>
+    </div>
+
+    <h2 id="pitfalls">6. 常见坑点</h2>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 1:误以为单向 channel 能在函数内 close</span>
+      <pre class="language-go"><code>func consumer(ch &lt;-chan int) {
+    close(ch)  // ❌ invalid operation: cannot close receive-only channel
+}</code></pre>
+      <strong>设计意图</strong>:接收方<strong>不应该</strong>关闭 channel,所以编译器禁止。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2:不能把单向 channel 转回双向</span>
+      <pre class="language-go"><code>var ro &lt;-chan int = make(chan int)
+var bi chan int = ro  // ❌ cannot use ro (variable of type &lt;-chan int) as chan int</code></pre>
+      <strong>原因</strong>:类型系统单向收紧。要想再发送,必须保留双向引用。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>写一对函数 <code>producer(out chan&lt;- int)</code> 和 <code>consumer(in &lt;-chan int)</code>,在 producer 里加一行 <code>&lt;-out</code> 看编译报错。</li>
+      <li>用方向约束实现一个三段 pipeline:<code>gen → sq → print</code>,每段都用合适的方向类型。</li>
+      <li>写一个 <code>tee(in &lt;-chan int) (&lt;-chan int, &lt;-chan int)</code> 函数,把一路输入复制成两路输出。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./04_channel_close.html">
+        <div class="label">← 上一页</div>
+        <div class="title">2.4 关闭</div>
+      </a>
+      <a class="next" href="./06_producer_consumer.html">
+        <div class="label">下一页 →</div>
+        <div class="title">2.6 · 生产者消费者</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

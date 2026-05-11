@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 6 · Race Detector 数据竞争检测实战 · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="./lesson_06_race_detector.html" class="active">L6 · Race Detector</a>
+    <div class="lesson-group">
+      <a href="./01_what_is_race.html">6.1 什么是 race</a>
+    </div>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <span class="current">Unit 2 · Lesson 6 · Race Detector</span>
+    </nav>
+
+    <h1>Lesson 6 · Race Detector 数据竞争检测实战</h1>
+
+    <p>数据竞争(Data Race)是并发程序里<strong>最隐蔽、最致命</strong>的 bug:它可能让你的代码<strong>看起来工作了一万次</strong>,然后某次生产环境流量一上来,直接产生脏数据、panic、甚至运行时 corruption。
+    Go 语言把这个问题列为<strong>「未定义行为」(undefined behavior)</strong>,并提供了官方 race detector,让你能在测试阶段把它揪出来。</p>
+
+    <div class="callout danger">
+      <span class="callout-title">官方定义</span>
+      当<strong>两个或多个 goroutine 同时访问同一个变量</strong>,且<strong>至少有一个是写操作</strong>,
+      并且<strong>之间没有 happens-before 关系</strong>时——这就是数据竞争。
+      Go 内存模型规定:有 race 的程序<strong>行为未定义</strong>,任何输出都不构成 bug,也不构成正确。
+    </div>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对比 · 为什么 Go 把这件事说得这么严</span>
+      <p>Java 也有数据竞争,但 JMM(Java Memory Model)定义得相对宽松:</p>
+      <ul>
+        <li>Java 默认有 reference 原子性、final 字段安全发布等保障,有 race 时还可能「凑合工作」。</li>
+        <li>JVM 自带 <code>-XX:+UseConcMarkSweepGC</code> 等,有时会让 race 隐式生效。</li>
+        <li>Java 检测工具(ThreadSanitizer、FindBugs)是<strong>第三方</strong>,默认不开。</li>
+      </ul>
+      <p>Go 把所有 race 列为 <strong>UB</strong>,但作为补偿,把 race detector <strong>内置在 toolchain 里</strong>——一个 <code>-race</code> flag 搞定。这是 Go 在「易用性」和「严格性」之间的一次精彩平衡。</p>
+    </div>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  S1[6.1<br/>什么是数据竞争 + happens-before]:::sec --> S2[(后续)<br/>内存模型 / 检测器 / 修复]:::future
+
+  classDef sec fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+  classDef future fill:#45475a,color:#cdd6f4,stroke:#6c7086,stroke-dasharray: 5 3;
+      </div>
+      <div class="diagram-caption">图 · Lesson 6 当前覆盖的 Section</div>
+    </div>
+
+    <h2 id="sections">📑 课程目录</h2>
+
+    <div class="card-grid">
+      <a class="card" href="./01_what_is_race.html">
+        <div class="card-title">6.1 · 什么是数据竞争</div>
+        <div class="card-desc">
+          交错读写示意 · happens-before 模型 · race detector 实操 · 4 种修复手段
+          <span class="badge badge-pitfall">关键</span>
+        </div>
+      </a>
+    </div>
+
+    <h2 id="run">🚀 运行方式</h2>
+    <pre class="language-bash"><code># 运行单元测试
+go test ./unit_02_concurrency/lesson_06_race_detector
+
+# 启用 race detector(必看)
+go test -race ./unit_02_concurrency/lesson_06_race_detector
+
+# 也可以在 build / run 阶段开启
+go build -race -o bin/app .
+go run -race main.go</code></pre>
+
+    <h2 id="key-points">🎯 本课核心收获</h2>
+    <ul>
+      <li>能用一句话定义「数据竞争」:<strong>多 goroutine、共享变量、至少一写、无 happens-before</strong>。</li>
+      <li>会用 <code>go test -race</code> 在 CI 中守住底线,而不是等线上炸。</li>
+      <li>理解 4 种修复手段的取舍:<strong>Mutex / Channel / Atomic / 不可变</strong>。</li>
+      <li>知道 race detector 的 3 个局限:<strong>只检测被实际执行的路径、CPU/内存 5-10x、和 <code>sync/atomic</code> 配合微妙</strong>。</li>
+    </ul>
+
+    <div class="page-nav">
+      <a class="prev" href="../lesson_05_sync_atomic/01_mutex.html">
+        <div class="label">← 上一页</div>
+        <div class="title">5.1 · Mutex / RWMutex</div>
+      </a>
+      <a class="next" href="./01_what_is_race.html">
+        <div class="label">开始 →</div>
+        <div class="title">6.1 · 什么是 race</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

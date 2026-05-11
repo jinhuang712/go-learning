@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2.2 切片 Slice 核心剖析与坑点 · Lesson 2 Collections</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="./lesson_02_collections.html">L2 · Collections 集合</a>
+    <div class="lesson-group">
+      <a href="./01_array_internals.html">2.1 数组 Array</a>
+      <a href="./02_slice_internals.html" class="active">2.2 切片 Slice</a>
+      <a href="./03_map_internals.html">2.3 映射 Map</a>
+    </div>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_02_collections.html">L2 · Collections</a>
+      <span class="sep">/</span>
+      <span class="current">2.2 切片 Slice</span>
+    </nav>
+
+    <h1>2.2 切片 (Slice) 核心剖析与坑点</h1>
+
+    <p>切片是 Go 中<strong>最常用的集合类型</strong>。你可以把它当成 Java 的 <code>ArrayList</code>,但它的底层实现更有意思。</p>
+
+    <h2 id="header">2.1 切片的底层结构(非常重要)</h2>
+    <p>切片在底层其实是一个只有 <strong>3 个字段</strong>的小结构体(在 64 位机器上占 <strong>24 字节</strong>):</p>
+    <ol>
+      <li><strong>Pointer (指针)</strong>: 指向底层的实际数组。</li>
+      <li><strong>Length (长度, len)</strong>: 当前切片中实际元素的个数。</li>
+      <li><strong>Capacity (容量, cap)</strong>: 从指针位置开始,底层数组能提供的最大连续空间。</li>
+    </ol>
+
+    <pre class="language-go"><code>// 源码中的 slice 结构类似这样
+type slice struct {
+    array unsafe.Pointer
+    len   int
+    cap   int
+}</code></pre>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrow-slice" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+        </defs>
+
+        <!-- slice header -->
+        <rect x="30" y="50" width="240" height="180" rx="8" fill="#313244" stroke="#cba6f7" stroke-width="2" />
+        <text x="150" y="76" fill="#cba6f7" text-anchor="middle" font-weight="700">slice header (24 bytes)</text>
+
+        <rect x="50" y="92" width="200" height="36" fill="#45475a" stroke="#89b4fa" />
+        <text x="60" y="115" fill="#89b4fa" font-weight="700">array</text>
+        <text x="160" y="115" fill="#cdd6f4">unsafe.Pointer</text>
+
+        <rect x="50" y="136" width="200" height="36" fill="#45475a" stroke="#a6e3a1" />
+        <text x="60" y="159" fill="#a6e3a1" font-weight="700">len</text>
+        <text x="200" y="159" fill="#cdd6f4" text-anchor="middle">3</text>
+
+        <rect x="50" y="180" width="200" height="36" fill="#45475a" stroke="#fab387" />
+        <text x="60" y="203" fill="#fab387" font-weight="700">cap</text>
+        <text x="200" y="203" fill="#cdd6f4" text-anchor="middle">6</text>
+
+        <!-- underlying array -->
+        <rect x="370" y="80" width="320" height="120" rx="8" fill="#1e1e2e" stroke="#f38ba8" stroke-width="2" />
+        <text x="530" y="104" fill="#f38ba8" text-anchor="middle" font-weight="700">底层数组 (连续内存)</text>
+
+        <rect x="385" y="125" width="48" height="48" fill="#45475a" stroke="#a6e3a1" stroke-width="2" />
+        <text x="409" y="155" fill="#a6e3a1" text-anchor="middle" font-weight="700">10</text>
+        <rect x="435" y="125" width="48" height="48" fill="#45475a" stroke="#a6e3a1" stroke-width="2" />
+        <text x="459" y="155" fill="#a6e3a1" text-anchor="middle" font-weight="700">20</text>
+        <rect x="485" y="125" width="48" height="48" fill="#45475a" stroke="#a6e3a1" stroke-width="2" />
+        <text x="509" y="155" fill="#a6e3a1" text-anchor="middle" font-weight="700">30</text>
+        <rect x="535" y="125" width="48" height="48" fill="#45475a" stroke="#fab387" stroke-dasharray="3,2" />
+        <text x="559" y="155" fill="#6c7086" text-anchor="middle">_</text>
+        <rect x="585" y="125" width="48" height="48" fill="#45475a" stroke="#fab387" stroke-dasharray="3,2" />
+        <text x="609" y="155" fill="#6c7086" text-anchor="middle">_</text>
+        <rect x="635" y="125" width="48" height="48" fill="#45475a" stroke="#fab387" stroke-dasharray="3,2" />
+        <text x="659" y="155" fill="#6c7086" text-anchor="middle">_</text>
+
+        <text x="409" y="194" fill="#a6e3a1" text-anchor="middle" font-size="11">[0]</text>
+        <text x="459" y="194" fill="#a6e3a1" text-anchor="middle" font-size="11">[1]</text>
+        <text x="509" y="194" fill="#a6e3a1" text-anchor="middle" font-size="11">[2]</text>
+        <text x="559" y="194" fill="#fab387" text-anchor="middle" font-size="11">cap</text>
+        <text x="609" y="194" fill="#fab387" text-anchor="middle" font-size="11">cap</text>
+        <text x="659" y="194" fill="#fab387" text-anchor="middle" font-size="11">cap</text>
+
+        <!-- pointer -->
+        <line x1="250" y1="110" x2="380" y2="135" stroke="#89b4fa" stroke-width="2" marker-end="url(#arrow-slice)" />
+
+        <!-- legend -->
+        <text x="375" y="240" fill="#a6e3a1" font-size="12">■ len = 3 可访问</text>
+        <text x="500" y="240" fill="#fab387" font-size="12">■ cap-len = 3 预留空间</text>
+      </svg>
+      <div class="diagram-caption">图 · Slice 三字段结构: <code>array</code>(指针) + <code>len</code>(可见元素) + <code>cap</code>(底层数组容量)</div>
+    </div>
+
+    <h2 id="create">2.2 创建方式:字面量 vs make</h2>
+
+    <h3>字面量创建(极其容易与数组混淆)</h3>
+    <p>在 Go 中,通过字面量创建切片和数组的语法极其相似,<strong>唯一的区别就在于中括号里有没有数字</strong>:</p>
+    <ul>
+      <li><code>arr := [3]int{1, 2, 3}</code>:这是<strong>数组</strong>(中括号有具体数字)。</li>
+      <li><code>arr := [...]int{1, 2, 3}</code>:这是<strong>数组</strong>(让编译器数数字)。</li>
+      <li><code>slice := []int{1, 2, 3}</code>:这是<strong>切片</strong>(中括号是<strong>空</strong>的!)。</li>
+    </ul>
+
+    <p>当执行 <code>[]int{1, 2, 3}</code> 时,Go 底层其实偷偷做了两件事:</p>
+    <ol>
+      <li>在内存中分配了一个隐藏的数组 <code>[3]int{1, 2, 3}</code>。</li>
+      <li>创建了一个切片结构体,把它的指针指向那个隐藏数组,并设置 <code>len=3, cap=3</code>。</li>
+    </ol>
+
+    <h3>使用 make 创建切片</h3>
+    <p>除了字面量,在工程中动态创建切片最常用的方式是使用内置的 <code>make</code> 函数:</p>
+    <ul>
+      <li><code>s := make([]int, 5)</code>:创建一个长度 <code>len=5</code>,容量 <code>cap=5</code> 的切片。此时里面已经填充了 5 个 <code>0</code>,你可以直接 <code>s[0] = 10</code>。</li>
+      <li><code>s := make([]int, 0, 10)</code>:<strong>大厂最推荐的写法</strong>。创建一个长度 <code>len=0</code> 的空切片,但底层预先分配了 <code>cap=10</code> 的连续内存。这样你在后续 <code>append</code> 时,前 10 次都不会触发性能昂贵的内存重新分配。</li>
+    </ul>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  A["[]int{1,2,3}<br/>字面量"]:::lit --> R1["len=3 · cap=3<br/>隐藏数组立刻分配"]
+  B["make([]int, 5)"]:::make --> R2["len=5 · cap=5<br/>填充 5 个 0"]
+  C["make([]int, 0, 10)"]:::best --> R3["len=0 · cap=10<br/>✅ 预分配,append 不触发扩容"]
+
+  classDef lit  fill:#94e2d5,color:#11111b;
+  classDef make fill:#89b4fa,color:#11111b;
+  classDef best fill:#a6e3a1,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 三种创建方式对比:<code>make([]int, 0, N)</code> 是工程中性能最好的写法</div>
+    </div>
+
+    <h2 id="slicing">2.3 切片的截取 (Slicing) 与副作用</h2>
+    <p>当你使用 <code>subSlice := nums[1:3]</code> 截取时:</p>
+    <ul>
+      <li><code>subSlice</code> 并没有复制数据,它只是创建了一个新的 <code>slice</code> 结构体(新的指针、新的 len、新的 cap)。</li>
+      <li><strong>坑点</strong>: <code>subSlice</code> 和原切片 <code>nums</code> <strong>共享同一个底层数组</strong>!修改 <code>subSlice[0]</code> 会直接改变原数组的数据。</li>
+    </ul>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arr2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+        </defs>
+
+        <!-- nums header -->
+        <rect x="30" y="30" width="200" height="80" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="130" y="50" fill="#cba6f7" text-anchor="middle" font-weight="700">nums</text>
+        <text x="50" y="78" fill="#cdd6f4">ptr → &amp;arr[0]</text>
+        <text x="50" y="98" fill="#cdd6f4">len=5 · cap=5</text>
+
+        <!-- subSlice header -->
+        <rect x="30" y="170" width="200" height="80" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="130" y="190" fill="#cba6f7" text-anchor="middle" font-weight="700">subSlice := nums[1:3]</text>
+        <text x="50" y="218" fill="#cdd6f4">ptr → &amp;arr[1]</text>
+        <text x="50" y="238" fill="#cdd6f4">len=2 · cap=4</text>
+
+        <!-- shared array -->
+        <rect x="350" y="80" width="340" height="120" rx="8" fill="#1e1e2e" stroke="#f38ba8" stroke-width="2" />
+        <text x="520" y="104" fill="#f38ba8" text-anchor="middle" font-weight="700">⚠ 共享底层数组</text>
+
+        <rect x="370" y="125" width="56" height="48" fill="#45475a" stroke="#cdd6f4" />
+        <text x="398" y="155" fill="#cdd6f4" text-anchor="middle">10</text>
+        <text x="398" y="190" fill="#89b4fa" text-anchor="middle" font-size="11">[0]</text>
+
+        <rect x="428" y="125" width="56" height="48" fill="#45475a" stroke="#f38ba8" stroke-width="2" />
+        <text x="456" y="155" fill="#fab387" text-anchor="middle">20</text>
+        <text x="456" y="190" fill="#f38ba8" text-anchor="middle" font-size="11">[1] ←</text>
+
+        <rect x="486" y="125" width="56" height="48" fill="#45475a" stroke="#f38ba8" stroke-width="2" />
+        <text x="514" y="155" fill="#fab387" text-anchor="middle">30</text>
+        <text x="514" y="190" fill="#f38ba8" text-anchor="middle" font-size="11">[2]</text>
+
+        <rect x="544" y="125" width="56" height="48" fill="#45475a" stroke="#cdd6f4" />
+        <text x="572" y="155" fill="#cdd6f4" text-anchor="middle">40</text>
+        <text x="572" y="190" fill="#cdd6f4" text-anchor="middle" font-size="11">[3]</text>
+
+        <rect x="602" y="125" width="56" height="48" fill="#45475a" stroke="#cdd6f4" />
+        <text x="630" y="155" fill="#cdd6f4" text-anchor="middle">50</text>
+        <text x="630" y="190" fill="#cdd6f4" text-anchor="middle" font-size="11">[4]</text>
+
+        <!-- arrows -->
+        <line x1="230" y1="78" x2="370" y2="138" stroke="#89b4fa" stroke-width="2" marker-end="url(#arr2)" />
+        <line x1="230" y1="220" x2="428" y2="148" stroke="#f38ba8" stroke-width="2" marker-end="url(#arr2)" />
+
+        <text x="520" y="230" fill="#f38ba8" text-anchor="middle">改 subSlice[0] = 999 → nums[1] 也变 999</text>
+      </svg>
+      <div class="diagram-caption">图 · 截取产生新 header,但底层数组是同一份,修改互相可见</div>
+    </div>
+
+    <h2 id="clone">2.4 如何安全地 Clone (克隆) 一个切片?</h2>
+    <p>如果你不希望截取出的切片和原数组产生任何关联,必须进行<strong>深拷贝 (Deep Copy)</strong>:</p>
+
+    <h3>方案 1:使用 <code>copy</code> 内置函数</h3>
+    <pre class="language-go"><code>sub := nums[1:3]
+clone := make([]int, len(sub))
+copy(clone, sub)</code></pre>
+
+    <h3>方案 2:使用 <code>append</code> 技巧(推荐)</h3>
+    <pre class="language-go"><code>// []int(nil) 代表一个空切片。
+// nums[1:3]... 意思是把这个切片里的元素“打散”追加进去。
+// 因为前面的 nil 切片容量为 0,这会强迫 Go 重新分配一块干净的内存!
+clone := append([]int(nil), nums[1:3]...)</code></pre>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 致命错误示范:千万不能反着写!</span>
+      <pre class="language-go" style="margin-top:8px;"><code>// 错误:试图把空切片追加到有剩余容量的切片上
+wrongClone := append(nums[1:3], []int(nil)...)</code></pre>
+      <strong>原因</strong>:<code>append</code> 的底层逻辑是“只要被追加方的 Capacity 还够,就不分配新内存”。<code>nums[1:3]</code> 底层仍指向那个大数组,容量很充足;而你追加了 0 个元素。结果 <code>append</code> 根本没有触发扩容,直接把原共享切片返回了!修改 <code>wrongClone</code> 依然会污染原数组。
+    </div>
+
+    <h2 id="append">2.5 Append 与扩容机制</h2>
+    <p>在官方文档里,<code>append</code> 的签名是: <code>func append(slice []Type, elems ...Type) []Type</code></p>
+    <ul>
+      <li>这里的 <code>elems ...Type</code> 是可变参数(类似 Java 的 <code>Type... args</code>),代表你要追加的一个或多个值。</li>
+      <li>如果当前 <code>len &lt; cap</code>,直接在底层数组的对应位置写入,<code>len++</code>。</li>
+      <li><strong>如果当前 <code>len == cap</code>,触发扩容</strong>:
+        <ol>
+          <li>Go 会在内存中开辟一块更大的新数组(通常容量翻倍,或者按一定策略平滑增长)。</li>
+          <li>将老数组的数据拷贝过去,再把新元素追加进去。</li>
+          <li>返回一个指向<strong>新数组</strong>的切片。</li>
+        </ol>
+      </li>
+    </ul>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="12">
+        <defs>
+          <marker id="arr3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+        </defs>
+
+        <!-- BEFORE append: len==cap=4 -->
+        <text x="180" y="22" fill="#fab387" text-anchor="middle" font-weight="700">扩容前 · len=4 · cap=4</text>
+        <rect x="30" y="40" width="160" height="64" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="110" y="60" fill="#cba6f7" text-anchor="middle">s (header)</text>
+        <text x="50" y="82" fill="#cdd6f4">ptr → A</text>
+        <text x="50" y="98" fill="#cdd6f4">len=4 · cap=4</text>
+
+        <rect x="220" y="40" width="200" height="64" rx="6" fill="#1e1e2e" stroke="#f38ba8" />
+        <text x="320" y="60" fill="#f38ba8" text-anchor="middle">底层数组 A</text>
+        <rect x="230" y="70" width="40" height="28" fill="#45475a" stroke="#cdd6f4" />
+        <text x="250" y="89" fill="#cdd6f4" text-anchor="middle">1</text>
+        <rect x="275" y="70" width="40" height="28" fill="#45475a" stroke="#cdd6f4" />
+        <text x="295" y="89" fill="#cdd6f4" text-anchor="middle">2</text>
+        <rect x="320" y="70" width="40" height="28" fill="#45475a" stroke="#cdd6f4" />
+        <text x="340" y="89" fill="#cdd6f4" text-anchor="middle">3</text>
+        <rect x="365" y="70" width="40" height="28" fill="#45475a" stroke="#cdd6f4" />
+        <text x="385" y="89" fill="#cdd6f4" text-anchor="middle">4</text>
+
+        <line x1="190" y1="78" x2="220" y2="84" stroke="#89b4fa" stroke-width="2" marker-end="url(#arr3)" />
+
+        <!-- action: append 5 -->
+        <text x="500" y="76" fill="#fab387" font-weight="700">s = append(s, 5)</text>
+        <text x="500" y="94" fill="#cdd6f4">len == cap → 触发扩容</text>
+
+        <!-- AFTER -->
+        <text x="180" y="156" fill="#a6e3a1" text-anchor="middle" font-weight="700">扩容后 · len=5 · cap=8</text>
+        <rect x="30" y="174" width="160" height="64" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="110" y="194" fill="#cba6f7" text-anchor="middle">s (新 header)</text>
+        <text x="50" y="216" fill="#cdd6f4">ptr → B</text>
+        <text x="50" y="232" fill="#cdd6f4">len=5 · cap=8</text>
+
+        <rect x="220" y="170" width="430" height="72" rx="6" fill="#1e1e2e" stroke="#a6e3a1" />
+        <text x="435" y="190" fill="#a6e3a1" text-anchor="middle">底层数组 B (容量翻倍,全新分配)</text>
+        <rect x="230" y="200" width="40" height="28" fill="#45475a" stroke="#a6e3a1" />
+        <text x="250" y="219" fill="#cdd6f4" text-anchor="middle">1</text>
+        <rect x="275" y="200" width="40" height="28" fill="#45475a" stroke="#a6e3a1" />
+        <text x="295" y="219" fill="#cdd6f4" text-anchor="middle">2</text>
+        <rect x="320" y="200" width="40" height="28" fill="#45475a" stroke="#a6e3a1" />
+        <text x="340" y="219" fill="#cdd6f4" text-anchor="middle">3</text>
+        <rect x="365" y="200" width="40" height="28" fill="#45475a" stroke="#a6e3a1" />
+        <text x="385" y="219" fill="#cdd6f4" text-anchor="middle">4</text>
+        <rect x="410" y="200" width="40" height="28" fill="#45475a" stroke="#fab387" stroke-width="2" />
+        <text x="430" y="219" fill="#fab387" text-anchor="middle">5</text>
+        <rect x="455" y="200" width="40" height="28" fill="#45475a" stroke="#6c7086" stroke-dasharray="3,2" />
+        <text x="475" y="219" fill="#6c7086" text-anchor="middle">_</text>
+        <rect x="500" y="200" width="40" height="28" fill="#45475a" stroke="#6c7086" stroke-dasharray="3,2" />
+        <text x="520" y="219" fill="#6c7086" text-anchor="middle">_</text>
+        <rect x="545" y="200" width="40" height="28" fill="#45475a" stroke="#6c7086" stroke-dasharray="3,2" />
+        <text x="565" y="219" fill="#6c7086" text-anchor="middle">_</text>
+        <rect x="590" y="200" width="40" height="28" fill="#45475a" stroke="#6c7086" stroke-dasharray="3,2" />
+        <text x="610" y="219" fill="#6c7086" text-anchor="middle">_</text>
+
+        <line x1="190" y1="212" x2="220" y2="214" stroke="#89b4fa" stroke-width="2" marker-end="url(#arr3)" />
+
+        <text x="360" y="278" fill="#f38ba8" text-anchor="middle">⚠ 老数组 A 与新 header 完全脱钩,旧的指针 → A 已失效</text>
+        <text x="360" y="298" fill="#a6e3a1" text-anchor="middle">必须 s = append(s, ...) 把新 header 写回原变量!</text>
+      </svg>
+      <div class="diagram-caption">图 · 扩容会重新分配底层数组,append 返回的新 header 必须用 <code>=</code> 接住</div>
+    </div>
+
+    <h3>为什么必须写成 <code>slice = append(slice, v)</code>?</h3>
+    <p>既然 <code>slice</code> 内部包含了指针,为什么我不能像 Java 一样只写 <code>append(slice, v)</code> 呢?</p>
+    <div class="callout warn">
+      <span class="callout-title">根因</span>
+      因为 <strong><code>slice</code> 结构体本身是按“值传递”传给 <code>append</code> 函数的!</strong>
+      当 <code>append</code> 触发扩容时,它在内部创建了一个<strong>指向新数组的全新 slice 结构体</strong>。
+      如果你不把这个新的结构体通过 <code>=</code> 重新赋值给外面的 <code>slice</code> 变量,
+      外面的变量依然傻傻地指向那个老数组,而且它的 <code>len</code> 也没有增加!
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>用 <code>make([]int, 0, 4)</code> 创建一个切片,循环 <code>append</code> 1 到 10,每次打印 <code>len/cap</code> 与 <code>&amp;s[0]</code>,观察扩容时底层指针变化。</li>
+      <li>实现 <code>SafeClone(s []int) []int</code>,要求返回值与 <code>s</code> 不共享任何底层内存,用单元测试验证“修改 clone 不影响 s”。</li>
+      <li>验证致命错误示范:用 <code>append(nums[1:3], []int(nil)...)</code> 之后修改返回值,看是否污染了原 <code>nums</code>。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_array_internals.html">
+        <div class="label">← 上一页</div>
+        <div class="title">2.1 · 数组 Array</div>
+      </a>
+      <a class="next" href="./03_map_internals.html">
+        <div class="label">下一页 →</div>
+        <div class="title">2.3 · 映射 Map</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

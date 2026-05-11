@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>5.2 崩溃与恢复 Panic &amp; Recover · Lesson 5 · Error Handling · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="./lesson_05_error_handling.html">L5 · Error Handling</a>
+    <div class="lesson-group">
+      <a href="./01_error_interface.html">5.1 error 接口</a>
+      <a href="./02_panic_recover.html" class="active">5.2 panic / recover</a>
+    </div>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_05_error_handling.html">L5 · Error Handling</a>
+      <span class="sep">/</span>
+      <span class="current">5.2 panic / recover</span>
+    </nav>
+
+    <h1>5.2 · 崩溃与恢复 (Panic &amp; Recover)</h1>
+
+    <p>既然 Go 不提倡用异常 (<code>Exception</code>),那如果程序遇到<strong>真的无法继续执行</strong>的严重错误(比如空指针、数组越界、配置加载失败)该怎么办?</p>
+
+    <p>答案是:<strong>Panic (恐慌)</strong>。</p>
+
+    <h2 id="panic">5.2.1 Panic (引发恐慌)</h2>
+
+    <p><code>panic</code> 类似于 Java 中抛出 <code>RuntimeException</code> 或 <code>Error</code>。一旦调用 <code>panic</code>,正常的控制流会被中断,当前 goroutine 中的所有 <code>defer</code> 语句会按<strong>倒序</strong>执行,最后程序崩溃并打印堆栈跟踪。</p>
+
+    <div class="callout danger">
+      <span class="callout-title">什么时候用 Panic?</span>
+      在微服务中,<strong>永远不要用 <code>panic</code> 处理业务逻辑错误</strong>(如密码错误、找不到数据)。
+      只有在<strong>不可恢复的程序 Bug</strong>(如必须要初始化的配置缺失、明显的开发者错误)时,才使用 <code>panic</code>。
+    </div>
+
+    <pre class="language-go"><code>func mustLoadConfig(path string) Config {
+    cfg, err := loadConfig(path)
+    if err != nil {
+        panic(fmt.Errorf("启动期配置加载失败: %w", err))
+        // 这里 panic 是合理的:进程根本无法启动,fail fast
+    }
+    return cfg
+}</code></pre>
+
+    <h2 id="recover">5.2.2 Recover (恢复)</h2>
+
+    <p>如果在 Web 服务中,某个请求触发了 <code>panic</code>,我们显然<strong>不希望整个微服务进程挂掉</strong>。我们需要一种机制捕获这个 panic,这就是 <code>recover</code>。</p>
+
+    <ul>
+      <li><code>recover()</code> 必须<strong>只在 <code>defer</code> 函数内部调用</strong>才有效。</li>
+      <li>如果没有发生 <code>panic</code>,<code>recover()</code> 返回 <code>nil</code>。</li>
+      <li>捕获到 <code>panic</code> 后,程序不会崩溃,而是从触发 panic 的函数<strong>正常返回</strong>,继续执行上层代码。</li>
+    </ul>
+
+    <pre class="language-go"><code>func safeCall() (err error) {
+    defer func() {
+        if r := recover(); r != nil {
+            err = fmt.Errorf("recovered: %v", r)
+        }
+    }()
+    panicProneFunc()
+    return nil
+}</code></pre>
+
+    <h2 id="stack-unwind">5.2.3 panic 的栈展开与 recover 拦截</h2>
+
+    <p>下面这张 sequenceDiagram 描述 panic 如何<strong>沿调用栈倒序展开 (unwind)</strong>,被途中的某层 <code>defer recover</code> 拦截后,如何让上层继续正常返回:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant Main as main
+  participant H as handleRequest<br/>(含 defer recover)
+  participant S as serviceCall
+  participant D as deepFunc
+
+  Main->>H: handleRequest(req)
+  H->>S: service.Do()
+  S->>D: deep work
+  D-->>D: panic("nil ptr deref") ★
+  Note over D: 触发 panic<br/>立即开始栈展开
+  D-->>S: 沿栈倒序 (S 的 defer 执行)
+  S-->>H: 沿栈倒序 (H 的 defer 执行)
+  Note over H: defer 内 recover() != nil<br/>panic 被拦截 ✓
+  H-->>Main: 正常 return err
+  Note over Main: 进程不退出<br/>请求返回 500
+      </div>
+      <div class="diagram-caption">图 · panic 触发 → 栈倒序展开 → 被 <code>defer recover</code> 拦截 → 上层正常返回</div>
+    </div>
+
+    <h2 id="compare-table">5.2.4 Java 与 Go 崩溃恢复对比</h2>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照表</span>
+      <table>
+        <thead><tr><th>Java</th><th>Go</th><th>适用场景</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>try { ... }</code></td>
+            <td>正常写代码(不需要包一层)</td>
+            <td>业务代码域</td>
+          </tr>
+          <tr>
+            <td><code>catch (Exception e) { ... }</code></td>
+            <td><code>defer func() { if r := recover(); r != nil { ... } }()</code></td>
+            <td>捕获意料之外的严重错误,防止进程退出</td>
+          </tr>
+          <tr>
+            <td><code>finally { ... }</code></td>
+            <td><code>defer</code></td>
+            <td>资源清理</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="best-practice">5.2.5 微服务中的最佳实践</h2>
+
+    <p>在 Gin 或 Hertz 这种 Web 框架中,通常会有一个<strong>全局的 Recovery Middleware</strong>(恢复中间件)。它的作用就是在所有请求的最外层套一个 <code>defer recover()</code>,这样无论哪个业务开发人员写出了空指针 bug,都只会导致<strong>当前这个请求返回 <code>HTTP 500</code></strong>,而不会导致整个微服务宕机。</p>
+
+    <pre class="language-go"><code>// 典型的 Gin 风格 Recovery 中间件
+func Recovery() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        defer func() {
+            if r := recover(); r != nil {
+                // 1. 打印完整调用栈用于排查
+                log.Printf("panic recovered: %v\n%s", r, debug.Stack())
+                // 2. 上报监控
+                metrics.PanicCounter.Inc()
+                // 3. 返回 500
+                c.AbortWithStatus(http.StatusInternalServerError)
+            }
+        }()
+        c.Next()
+    }
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  REQ["HTTP 请求"]:::ok --> MW["Recovery Middleware<br/>defer recover()"]:::wrap
+  MW --> CTRL["业务 Controller"]:::sec --> SVC["Service"]:::sec --> DAO["DAO"]:::sec
+  DAO -.->|"panic"| MW
+  MW -->|拦截后| RESP["HTTP 500 + 日志 + 监控"]:::ok
+
+  classDef ok fill:#a6e3a1,color:#11111b;
+  classDef wrap fill:#fab387,color:#11111b;
+  classDef sec fill:#89b4fa,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · Web 框架最外层 Recovery 中间件如何兜底业务层 panic</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">心智模型</span>
+      把 <code>recover</code> 当成<strong>「整个微服务的最后一道防线」</strong>,而不是日常错误处理工具。
+      日常仍然<strong>用 <code>error</code> 返回值</strong>,只有那种「真的不应该走到这里」的情况才靠 panic + recover 兜底。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>写一个 <code>safeCall(fn func())</code> 包装函数,把任意 panic 转成 <code>error</code> 返回。</li>
+      <li>在练习里故意触发 nil pointer panic,验证 <code>recover()</code> 能拦截。然后<strong>把 <code>recover</code> 放到非 defer 的 func 里</strong>,观察现象(它不会生效)。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_error_interface.html">
+        <div class="label">← 上一页</div>
+        <div class="title">5.1 · error 接口</div>
+      </a>
+      <a class="next" href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">
+        <div class="label">下一课 →</div>
+        <div class="title">Lesson 6 · Java→Go 坑点</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

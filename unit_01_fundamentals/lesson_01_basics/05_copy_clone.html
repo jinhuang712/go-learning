@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>1.5 深浅拷贝 Copy vs Clone · Lesson 1 Basics</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="./lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <div class="lesson-group">
+      <a href="./01_variables_types.html">1.1 变量 / 常量 / 类型</a>
+      <a href="./02_control_flow.html">1.2 控制流 / defer</a>
+      <a href="./03_functions_visibility.html">1.3 函数 / 可见性</a>
+      <a href="./04_java_go_mapping.html">1.4 Java↔Go 关键字</a>
+      <a href="./05_copy_clone.html" class="active">1.5 深浅拷贝</a>
+    </div>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_01_basics.html">L1 · Basics</a>
+      <span class="sep">/</span>
+      <span class="current">1.5 深浅拷贝</span>
+    </nav>
+
+    <h1>1.5 深浅拷贝 (Copy vs Clone) 的底层逻辑</h1>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      在 Java 中,赋值一个对象给另一个变量,默认只是传递<strong>引用(浅拷贝)</strong>。
+      要完整复制,必须实现 <code>Cloneable</code> 接口并重写 <code>clone()</code>(深拷贝)。
+    </div>
+
+    <p>但在 Go 中,情况完全不同。核心法则<strong>只有一条</strong>:</p>
+
+    <div class="callout danger">
+      <span class="callout-title">Go 一切皆值传递</span>
+      Go 中<strong>所有赋值 (<code>=</code>)、函数参数传递,全是「值传递」(浅拷贝)</strong>。
+      这听起来简单,但碰到复合类型很容易出错。下面分类讨论。
+    </div>
+
+    <h2 id="primitives">5.1 基础类型与纯值结构体(真正的深拷贝)</h2>
+    <p>对于 <code>int</code> / <code>float</code> / <code>bool</code> 和<strong>不含指针的 struct</strong>,赋值会完整复制内存,修改新变量绝对不影响老变量。</p>
+
+    <pre class="language-go"><code>type Point struct { X, Y int }
+p1 := Point{1, 2}
+p2 := p1 // 完整内存拷贝
+p2.X = 99
+// p1.X 依然是 1</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  P1["p1 = Point{1, 2}"] -- "= (整块拷贝)" --> P2["p2 = Point{1, 2}"]
+  P2 -- "p2.X = 99" --> P2X["p2 = Point{99, 2}"]
+  P1 -. "p1 不受影响" .-> P1X["p1 = Point{1, 2}"]
+
+  classDef ok fill:#a6e3a1,color:#11111b;
+  class P1,P1X,P2,P2X ok
+      </div>
+      <div class="diagram-caption">图 · 纯值结构体的真正深拷贝</div>
+    </div>
+
+    <h2 id="reference">5.2 引用类型的赋值(浅拷贝陷阱)</h2>
+    <p>Go 中的引用类型主要有 3 种:<strong>Slice / Map / Channel</strong>。把 Slice 赋值给另一个变量时,Go 依然是值传递,但传递的是 Slice 的<strong>3 字段结构体</strong>(Pointer, len, cap)。</p>
+    <p>因为复制的 Pointer 依然指向同一块底层数组,这就产生了<strong>浅拷贝效果</strong>:</p>
+
+    <pre class="language-go"><code>s1 := []int{1, 2, 3}
+s2 := s1 // 只拷贝了 slice 结构体(24字节),底层数组没拷贝!
+
+s2[0] = 999
+// s1[0] 也变成 999!共享底层数组</code></pre>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+        </defs>
+
+        <!-- s1 header -->
+        <rect x="30" y="30" width="200" height="80" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="130" y="50" fill="#cba6f7" text-anchor="middle" font-weight="700">s1 (slice header)</text>
+        <text x="50" y="78" fill="#cdd6f4">ptr  →</text>
+        <text x="50" y="98" fill="#cdd6f4">len=3 · cap=3</text>
+
+        <!-- s2 header -->
+        <rect x="30" y="160" width="200" height="80" rx="6" fill="#313244" stroke="#cba6f7" />
+        <text x="130" y="180" fill="#cba6f7" text-anchor="middle" font-weight="700">s2 (slice header)</text>
+        <text x="50" y="208" fill="#cdd6f4">ptr  →</text>
+        <text x="50" y="228" fill="#cdd6f4">len=3 · cap=3</text>
+
+        <!-- shared array -->
+        <rect x="420" y="90" width="270" height="90" rx="6" fill="#1e1e2e" stroke="#f38ba8" stroke-width="2" />
+        <text x="555" y="112" fill="#f38ba8" text-anchor="middle" font-weight="700">底层数组 (共享!)</text>
+        <rect x="440" y="130" width="60" height="36" fill="#45475a" stroke="#cdd6f4" />
+        <text x="470" y="152" fill="#fab387" text-anchor="middle">999</text>
+        <rect x="510" y="130" width="60" height="36" fill="#45475a" stroke="#cdd6f4" />
+        <text x="540" y="152" fill="#cdd6f4" text-anchor="middle">2</text>
+        <rect x="580" y="130" width="60" height="36" fill="#45475a" stroke="#cdd6f4" />
+        <text x="610" y="152" fill="#cdd6f4" text-anchor="middle">3</text>
+
+        <!-- arrows -->
+        <line x1="130" y1="85" x2="430" y2="135" stroke="#89b4fa" stroke-width="2" marker-end="url(#arrow)" />
+        <line x1="130" y1="215" x2="430" y2="145" stroke="#89b4fa" stroke-width="2" marker-end="url(#arrow)" />
+
+        <text x="555" y="200" fill="#f38ba8" text-anchor="middle">⚠ 改 s2[0] = 999 → s1[0] 也变了</text>
+      </svg>
+      <div class="diagram-caption">图 · Slice 浅拷贝:两个 header 各自一份,底层数组只有一份</div>
+    </div>
+
+    <h2 id="nested">5.3 结构体内部包含引用类型(半深半浅)</h2>
+    <p>这是业务开发中<strong>最容易出 Bug</strong> 的地方。如果你的结构体里包含 Slice 或 Map:</p>
+
+    <pre class="language-go"><code>type User struct {
+    Name string
+    Tags []string // 切片 (引用类型)
+}
+
+u1 := User{Name: "Alice", Tags: []string{"admin", "vip"}}
+u2 := u1 // 拷贝整个结构体</code></pre>
+
+    <p>此时:</p>
+    <ul>
+      <li><code>u2.Name = "Bob"</code> — <span class="status-done">不会</span>影响 <code>u1</code> (string 是不可变值类型)</li>
+      <li><code>u2.Tags[0] = "guest"</code> — <strong class="status-doing">会</strong>影响 <code>u1</code>!Tags 切片浅拷贝,共享底层数组</li>
+    </ul>
+
+    <h2 id="deep-copy">5.4 在 Go 中实现真正的 Deep Copy</h2>
+    <p>Go 标准库<strong>没有</strong>通用深拷贝函数(因为反射深拷贝性能极差)。两种方案:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  X["需要深拷贝包含引用类型的复杂结构体"]
+  X --> A["✅ 手动 Clone()<br/>性能最好"]:::good
+  X --> B["🐌 json Marshal+Unmarshal<br/>性能极差"]:::bad
+
+  A --> A1["1. 复制值字段<br/>2. make + copy 切片<br/>3. 递归 clone 子对象"]:::good
+  B --> B1["注意 unexported<br/>字段会丢失!"]:::bad
+
+  classDef good fill:#a6e3a1,color:#11111b;
+  classDef bad fill:#f38ba8,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · Deep Copy 的两种方案与权衡</div>
+    </div>
+
+    <h3>方案 1:手动逐字段赋值(推荐)</h3>
+    <pre class="language-go"><code>func (u *User) Clone() *User {
+    // 1. 拷贝值类型字段
+    clone := &User{Name: u.Name}
+    // 2. 深拷贝切片字段
+    if u.Tags != nil {
+        clone.Tags = make([]string, len(u.Tags))
+        copy(clone.Tags, u.Tags) // 内置 copy 函数
+    }
+    return clone
+}</code></pre>
+
+    <h3>方案 2:JSON 序列化反序列化(最懒,性能极差)</h3>
+    <p>把对象 <code>json.Marshal</code> 变成字节流,再 <code>json.Unmarshal</code> 到新对象。在性能苛刻的微服务中,<strong>强烈不推荐</strong>这种做法。</p>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>定义一个 <code>Article struct { Title string; Tags []string; Meta map[string]string }</code>,写一个 <code>Clone()</code> 方法做真正的深拷贝并写测试验证。</li>
+      <li>用 benchmark 对比 <code>Clone()</code> 与 <code>JSON 深拷贝</code> 的性能,记录差距数量级。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./04_java_go_mapping.html">
+        <div class="label">← 上一页</div>
+        <div class="title">1.4 · Java ↔ Go 关键字</div>
+      </a>
+      <a class="next" href="../lesson_02_collections/lesson_02_collections.html">
+        <div class="label">下一课 →</div>
+        <div class="title">Lesson 2 · Collections</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

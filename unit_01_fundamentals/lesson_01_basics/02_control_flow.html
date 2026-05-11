@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>1.2 控制流与 Defer · Lesson 1 Basics</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="./lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <div class="lesson-group">
+      <a href="./01_variables_types.html">1.1 变量 / 常量 / 类型</a>
+      <a href="./02_control_flow.html" class="active">1.2 控制流 / defer</a>
+      <a href="./03_functions_visibility.html">1.3 函数 / 可见性</a>
+      <a href="./04_java_go_mapping.html">1.4 Java↔Go 关键字</a>
+      <a href="./05_copy_clone.html">1.5 深浅拷贝</a>
+    </div>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_01_basics.html">L1 · Basics</a>
+      <span class="sep">/</span>
+      <span class="current">1.2 控制流 / defer</span>
+    </nav>
+
+    <h1>1.2 控制流与 Defer</h1>
+    <p>Go 的控制流比 Java 更精简,去掉了冗余括号,并增强了部分功能。</p>
+
+    <h2 id="for">2.1 只有 <code>for</code> 循环</h2>
+    <p>Go 没有 <code>while</code> 或 <code>do-while</code>,一切皆 <code>for</code>。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  F["Go 仅有 for"]
+  F --> F1["标准循环<br/>for i:=0; i&lt;3; i++ {}"]
+  F --> F2["while 替代<br/>for n &lt; 5 {}"]
+  F --> F3["while(true)<br/>for {}"]
+  F --> F4["遍历集合<br/>for k,v := range m {}"]
+
+  classDef root fill:#cba6f7,color:#11111b;
+  classDef child fill:#89b4fa,color:#11111b;
+  class F root
+  class F1,F2,F3,F4 child
+      </div>
+      <div class="diagram-caption">图 · <code>for</code> 一统天下的四种形态</div>
+    </div>
+
+    <pre class="language-go"><code>// 1. 标准循环
+for i := 0; i < 3; i++ { /* ... */ }
+
+// 2. while 替代
+n := 0
+for n < 5 {
+    n++
+}
+
+// 3. 无限循环
+for {
+    if needStop {
+        break
+    }
+}</code></pre>
+
+    <h2 id="if-init">2.2 <code>if/else</code> 带初始化语句</h2>
+    <p>Go 的 <code>if</code> 允许在条件判断前<strong>先执行一条简短初始化语句</strong>,两部分用分号隔开。</p>
+    <p><strong>基本语法</strong>:<code>if 初始化语句; 条件表达式 { ... }</code></p>
+
+    <div class="callout java">
+      <span class="callout-title">Java 痛点</span>
+      在 Java 中,如果要调用方法、判断结果、并只在 <code>if</code> 块内使用结果,你通常这么写:
+      <pre class="language-java"><code>// res 的作用域污染整个外部方法
+Result res = doSomething();
+if (res != null) {
+    System.out.println(res);
+}
+// 这里依然可以访问 res</code></pre>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">Go 的优雅解法</span>
+      通过带初始化的 <code>if</code>,把变量作用域严格限制在 <code>if</code>/<code>else</code> 块内部。
+      <pre class="language-go"><code>if err := doSomething(); err != nil {
+    fmt.Println("出错了:", err)
+    return err
+}
+// 离开 if 块后,err 变量已销毁,外部无法访问</code></pre>
+    </div>
+
+    <h2 id="switch">2.3 <code>switch</code> (默认不穿透)</h2>
+    <p>与 Java 最大的不同:Go 的 <code>switch</code> <strong>默认不会穿透 (fallthrough)</strong>,匹配到一个 <code>case</code> 执行完后自动退出,<strong>不需要写 <code>break</code></strong>。</p>
+
+    <pre class="language-go"><code>switch day {
+case "Monday", "Tuesday": // 可以匹配多个值
+    fmt.Println("Workday")
+case "Sunday":
+    fmt.Println("Weekend")
+default:
+    fmt.Println("Unknown")
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  J["Java switch<br/>(默认穿透)"] -- "必须显式 break" --> JR["case A: doA(); break;"]
+  G["Go switch<br/>(默认不穿透)"] -- "自动 break" --> GR["case A: doA()  // 自动退出"]
+
+  classDef java fill:#cba6f7,color:#11111b;
+  classDef go   fill:#89b4fa,color:#11111b;
+  class J,JR java
+  class G,GR go
+      </div>
+      <div class="diagram-caption">图 · Java / Go switch 穿透行为对比</div>
+    </div>
+
+    <h2 id="defer">2.4 <code>defer</code> 延迟执行</h2>
+    <p><code>defer</code> 是 Go 的一大特色,用于确保函数在退出前一定执行某些清理操作(类似 Java <code>finally</code>,但写法更<strong>就地</strong>、更优雅)。</p>
+    <ul>
+      <li><strong>执行时机</strong>:当前函数 <code>return</code> 之前。</li>
+      <li><strong>常见场景</strong>:关闭文件、释放锁、关闭 DB 连接。</li>
+      <li><strong>多个 <code>defer</code></strong>:按 <strong>LIFO</strong>(后进先出栈)顺序执行。</li>
+    </ul>
+
+    <pre class="language-go"><code>func processFile() {
+    file := openFile()
+    defer file.Close() // 无论后面发生什么,函数退出时都会执行
+
+    // 业务逻辑...
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  participant Caller
+  participant Func as processFile()
+  participant Stack as defer 栈
+
+  Caller->>Func: 调用 processFile()
+  Func->>Stack: push defer A: file.Close()
+  Func->>Stack: push defer B: log.Println(...)
+  Note over Func: 主体业务逻辑执行
+  Func-->>Func: return
+  Stack-->>Func: pop B → 执行
+  Stack-->>Func: pop A → 执行
+  Func-->>Caller: 函数真正退出
+      </div>
+      <div class="diagram-caption">图 · <code>defer</code> 的 LIFO 栈式执行时序</div>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点</span>
+      <code>defer f(arg)</code> 的<strong>参数在 defer 注册时立即求值</strong>,但函数体延迟到 return 前才跑。
+      <code>defer func() { ... }()</code> 闭包的写法则可以捕获最新状态。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>用 <code>for</code> 写一个不带任何条件的无限事件循环,通过 <code>break</code> 在收到 <code>stop</code> 信号时退出。</li>
+      <li>写一个函数 <code>readConfig()</code>:打开文件、读取内容、出错时使用 <code>if err := ...; err != nil</code> 的带初始化判断,并用 <code>defer</code> 关闭文件。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_variables_types.html">
+        <div class="label">← 上一页</div>
+        <div class="title">1.1 · 变量与基本类型</div>
+      </a>
+      <a class="next" href="./03_functions_visibility.html">
+        <div class="label">下一页 →</div>
+        <div class="title">1.3 · 函数与可见性</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

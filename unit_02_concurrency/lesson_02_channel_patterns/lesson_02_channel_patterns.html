@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 2 · Channel 模式 · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="./lesson_02_channel_patterns.html" class="active">L2 · Channel 模式</a>
+    <div class="lesson-group">
+      <a href="./01_channel_basics.html">2.1 Channel 基础</a>
+      <a href="./02_unbuffered_channel.html">2.2 无缓冲</a>
+      <a href="./03_buffered_channel.html">2.3 有缓冲</a>
+      <a href="./04_channel_close.html">2.4 关闭</a>
+      <a href="./05_channel_direction.html">2.5 单向</a>
+      <a href="./06_producer_consumer.html">2.6 生产者消费者</a>
+    </div>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <span class="current">Unit 2 · Lesson 2 · Channel 模式</span>
+    </nav>
+
+    <h1>Lesson 2 · Channel 模式与底层原理</h1>
+
+    <p>L1 我们建立了 CSP 心智模型——「通过通信共享内存」。这一课我们深入 Go 并发的核心物料 <strong>Channel</strong>:从基础语法到无缓冲/有缓冲两种形态,再到关闭、方向约束、生产者-消费者模式。</p>
+
+    <div class="callout note">
+      <span class="callout-title">学习地图</span>
+      6 个 Section 由表及里:语法骨架 → 同步通信 → 异步通信 → 生命周期管理 → 类型安全 → 工程模式。
+    </div>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  S1[2.1<br/>Channel 基础<br/>语法骨架]:::sec --> S2[2.2<br/>无缓冲<br/>同步通信]:::sync
+  S2 --> S3[2.3<br/>有缓冲<br/>异步通信]:::async
+  S3 --> S4[2.4<br/>Channel 关闭<br/>生命周期]:::life
+  S4 --> S5[2.5<br/>方向约束<br/>编译期安全]:::safe
+  S5 --> S6[2.6<br/>生产者消费者<br/>工程模式]:::pat
+
+  classDef sec fill:#89b4fa,color:#11111b;
+  classDef sync fill:#fab387,color:#11111b;
+  classDef async fill:#94e2d5,color:#11111b;
+  classDef life fill:#f38ba8,color:#11111b;
+  classDef safe fill:#cba6f7,color:#11111b;
+  classDef pat fill:#a6e3a1,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · Lesson 2 的 6 个 Section 推进顺序</div>
+    </div>
+
+    <div class="callout java">
+      <span class="callout-title">Java 视角导览</span>
+      Channel 在 Java 里的对应物零零散散:
+      <ul>
+        <li><strong>无缓冲 Channel</strong> ↔ <code>SynchronousQueue</code> (容量 0,必须握手)</li>
+        <li><strong>有缓冲 Channel</strong> ↔ <code>ArrayBlockingQueue</code> / <code>LinkedBlockingQueue</code></li>
+        <li><strong>close(ch) 广播</strong> ↔ 无直接对应,Java 用 <code>CompletableFuture</code> + 中断信号拼凑</li>
+        <li><strong>chan&lt;- / &lt;-chan</strong> ↔ Java 无编译期方向约束</li>
+      </ul>
+      Go 用<strong>一种统一的语言原语</strong>覆盖了 Java 里多个 API 的功能。
+    </div>
+
+    <h2 id="sections">📑 课程目录</h2>
+
+    <div class="card-grid">
+      <a class="card" href="./01_channel_basics.html">
+        <div class="card-title">2.1 · Channel 基础语法</div>
+        <div class="card-desc">
+          <code>make(chan T)</code> · <code>&lt;-</code> · 类型安全 · nil channel 行为
+        </div>
+      </a>
+      <a class="card" href="./02_unbuffered_channel.html">
+        <div class="card-title">2.2 · 无缓冲 Channel</div>
+        <div class="card-desc">
+          同步通信 · rendezvous 会合点 · 对照 Java <code>SynchronousQueue</code>
+          <span class="badge badge-java">JAVA</span>
+        </div>
+      </a>
+      <a class="card" href="./03_buffered_channel.html">
+        <div class="card-title">2.3 · 有缓冲 Channel</div>
+        <div class="card-desc">
+          ring buffer 内部结构 · 异步通信 · 对照 <code>ArrayBlockingQueue</code>
+        </div>
+      </a>
+      <a class="card" href="./04_channel_close.html">
+        <div class="card-title">2.4 · Channel 关闭与广播</div>
+        <div class="card-desc">
+          close 状态机 · comma-ok 语法 · 关闭后发送 panic
+          <span class="badge badge-pitfall">PITFALL</span>
+        </div>
+      </a>
+      <a class="card" href="./05_channel_direction.html">
+        <div class="card-title">2.5 · 方向约束</div>
+        <div class="card-desc">
+          <code>chan T</code> · <code>chan&lt;- T</code> · <code>&lt;-chan T</code> · 编译期安全
+        </div>
+      </a>
+      <a class="card" href="./06_producer_consumer.html">
+        <div class="card-title">2.6 · 生产者-消费者模式</div>
+        <div class="card-desc">
+          多生产者 / 多消费者 · Worker Pool · 优雅关闭
+        </div>
+      </a>
+    </div>
+
+    <h2 id="run">🚀 运行方式</h2>
+    <p>在 <code>main.go</code> 中调用 <code>lesson_02_channel_patterns.Run()</code> 即可执行本 Lesson 演示代码。</p>
+    <pre class="language-bash"><code>go run .
+go test ./unit_02_concurrency/lesson_02_channel_patterns</code></pre>
+
+    <div class="page-nav">
+      <a class="prev" href="../lesson_01_goroutine_csp/04_waitgroup_basics.html">
+        <div class="label">← 上一页</div>
+        <div class="title">1.4 WaitGroup</div>
+      </a>
+      <a class="next" href="./01_channel_basics.html">
+        <div class="label">开始 →</div>
+        <div class="title">2.1 · Channel 基础</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

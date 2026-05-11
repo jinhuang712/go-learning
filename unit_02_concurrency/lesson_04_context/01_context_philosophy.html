@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>4.1 Context 设计哲学 · Lesson 4 Context</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="./lesson_04_context.html">L4 · Context</a>
+    <div class="lesson-group">
+      <a href="./01_context_philosophy.html" class="active">4.1 设计哲学</a>
+      <a href="./02_context_tree.html">4.2 Context 树</a>
+    </div>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_04_context.html">L4 · Context</a>
+      <span class="sep">/</span>
+      <span class="current">4.1 设计哲学</span>
+    </nav>
+
+    <h1>4.1 Context 设计哲学</h1>
+
+    <p>Context 用于在 Goroutine 之间传递「请求作用域」(request-scoped) 的三件事:<strong>取消信号、截止时间、元数据</strong>。
+    在分布式系统里,一次外部请求往往会扇出成数十个内部 RPC、数据库查询、缓存调用;只要客户端断开,或者某一层超时,所有下游工作都必须立刻停止,否则会浪费 CPU、占用连接池。Context 就是这个「广播终止」的官方机制。</p>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照 · Context vs ThreadLocal / Future</span>
+      <ul>
+        <li>Java 的 <code>ThreadLocal</code> 只能在<strong>单一线程</strong>中传递数据;一旦你 <code>executor.submit()</code> 提交到线程池,ThreadLocal 会丢失。
+        实际项目里要靠 <code>MDC.getCopyOfContextMap()</code> 手动复制,或上 <code>TransmittableThreadLocal</code>。</li>
+        <li>Java 的 <code>Future.get(timeout)</code> 超时只能<strong>中断当前等待</strong>,无法把信号传到下游正在执行的代码。
+        想真正取消,必须自己 <code>future.cancel(true)</code> 并依赖被中断方<strong>正确响应 <code>InterruptedException</code></strong>。</li>
+        <li>Go 的 Context 把<strong>取消信号</strong>和<strong>请求元数据</strong>合二为一,并通过<strong>显式传参</strong>跨越所有 goroutine 边界——
+        没有「忘记复制」的坑。</li>
+      </ul>
+    </div>
+
+    <h2 id="three-principles">1. 三大设计原则</h2>
+
+    <ul>
+      <li><strong>不可变 (Immutable)</strong>:<code>Context</code> 一旦创建,任何修改都不可能。每次 <code>With*</code> 调用都返回一个<strong>新的子 Context</strong>,而非修改原对象。
+      —— 这正是 Java <code>String</code> 不可变的同款思路,天然线程安全。</li>
+      <li><strong>链式派生 (Derive)</strong>:<code>WithCancel</code> / <code>WithTimeout</code> / <code>WithDeadline</code> / <code>WithValue</code> 都接受一个父 Context,返回新的子 Context,形成一棵<strong>有向树</strong>。</li>
+      <li><strong>取消广播 (Propagate)</strong>:取消一个父 Context,所有子孙 Context 会<strong>同步</strong>进入 Done 状态。下游 goroutine 只需 <code>select { case &lt;-ctx.Done(): }</code> 即可感知。</li>
+    </ul>
+
+    <h2 id="interface">2. <code>context.Context</code> 接口本质</h2>
+
+    <pre class="language-go"><code>type Context interface {
+    Deadline() (deadline time.Time, ok bool)  // 截止时间
+    Done() &lt;-chan struct{}                    // 取消信号 channel
+    Err() error                                // 取消原因
+    Value(key any) any                         // 元数据查询
+}</code></pre>
+
+    <p>整个接口只有 4 个方法,本质上就是一个「只读通道 + 元数据 map」。
+    最关键的是 <code>Done()</code> 返回一个 channel,这意味着 <strong>Context 与 <code>select</code> 天然契合</strong>——你可以把 Context 和 IO/超时一起写在 select 里。</p>
+
+    <h2 id="cascade">3. 超时广播的实战时序</h2>
+
+    <p>假设你写了一个 HTTP Handler,它要并发调用 DB、Redis、外部 RPC 三个下游。Handler 给整条链路 200ms 的超时预算:</p>
+
+    <pre class="language-go"><code>func handler(w http.ResponseWriter, r *http.Request) {
+    // 派生一个 200ms 的子 Context
+    ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
+    defer cancel()                       // 必须 defer,否则资源泄漏
+
+    var wg sync.WaitGroup
+    wg.Add(3)
+    go callDB(ctx, &wg)                  // 把 ctx 传下去
+    go callRedis(ctx, &wg)
+    go callRPC(ctx, &wg)
+    wg.Wait()
+}</code></pre>
+
+    <p>下面这张图展示了 200ms 超时触发后,信号如何<strong>同时</strong>广播给三个下游:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant Client as 客户端
+    participant H as Handler<br/>(ctx 200ms)
+    participant DB as callDB(ctx)
+    participant Redis as callRedis(ctx)
+    participant RPC as callRPC(ctx)
+
+    Client->>H: HTTP 请求
+    H->>H: ctx, cancel := WithTimeout(200ms)
+    par 扇出三个下游
+        H->>DB: go callDB(ctx)
+        H->>Redis: go callRedis(ctx)
+        H->>RPC: go callRPC(ctx)
+    end
+
+    Note over H: 200ms 到 → ctx.Done() 关闭
+
+    par 取消信号广播
+        H-->>DB: &lt;-ctx.Done() 触发
+        H-->>Redis: &lt;-ctx.Done() 触发
+        H-->>RPC: &lt;-ctx.Done() 触发
+    end
+
+    DB-->>H: 立即返回 ctx.Err()
+    Redis-->>H: 立即返回 ctx.Err()
+    RPC-->>H: 立即返回 ctx.Err()
+    H-->>Client: 503 / timeout
+      </div>
+      <div class="diagram-caption">图 · 请求超时后,context 把 cancel 信号<strong>同时</strong>广播给所有下游 goroutine</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">关键洞察</span>
+      <code>ctx.Done()</code> 返回的是一个 channel。当 cancel 触发,Go runtime 会 <strong>close(channel)</strong>——
+      而被 close 的 channel <strong>所有读取者都会同时收到零值</strong>,这就是 Go 实现「一对多广播」的标准技巧。
+    </div>
+
+    <h2 id="value-key-safety">4. <code>WithValue</code> 的 Key 类型安全</h2>
+
+    <p>新手最常见的错误是直接用 <code>string</code> 当 key:<code>ctx.WithValue("requestID", "abc")</code>。两个不同 package 用了同样的 <code>"requestID"</code> 字符串,
+    彼此就会<strong>意外覆盖或读到对方的数据</strong>,而且编译器不会报错。</p>
+
+    <p><strong>官方做法</strong>:用<strong>自定义的私有类型</strong>当 key,这样每个 package 的 key 都是独一无二的:</p>
+
+    <pre class="language-go"><code>// 1) 私有类型,外部 package 无法构造同样的 key
+type ctxKey int
+
+// 2) 用 const + iota 定义所有 key
+const (
+    keyRequestID ctxKey = iota
+    keyUserID
+)
+
+// 3) 提供安全的 Set / Get 辅助函数
+func WithRequestID(ctx context.Context, id string) context.Context {
+    return context.WithValue(ctx, keyRequestID, id)
+}
+func GetRequestID(ctx context.Context) (string, bool) {
+    v, ok := ctx.Value(keyRequestID).(string)
+    return v, ok
+}</code></pre>
+
+    <h2 id="pitfalls">5. 生产环境四条铁律</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">不要犯的四个错</span>
+      <ol>
+        <li><strong>不要把 Context 放进 struct</strong>。Context 是「请求作用域」对象,struct 是「实体作用域」对象。混在一起会导致 ctx 跨越生命周期边界。</li>
+        <li><strong>不要传 nil Context</strong>。如果不确定用什么,用 <code>context.TODO()</code>(语义:暂时占位),不要写 <code>nil</code>(panic)。</li>
+        <li><strong>不要用 <code>WithValue</code> 传函数参数</strong>。WithValue 只用于跨中间件传递元数据(traceID、用户身份),业务参数要走显式函数参数。</li>
+        <li><strong>不要忘记 <code>defer cancel()</code></strong>。<code>WithTimeout</code> / <code>WithCancel</code> 都会启动定时器或注册回调,不调用 cancel 会泄漏。<code>go vet</code> 默认会检查这一点。</li>
+      </ol>
+    </div>
+
+    <h2 id="runnable">6. 可运行示例</h2>
+
+    <pre class="language-go"><code>func DemoWithTimeout() {
+    ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+    defer cancel()
+
+    done := make(chan bool)
+    go func() {
+        time.Sleep(1 * time.Second) // 模拟慢操作
+        done &lt;- true
+    }()
+
+    select {
+    case &lt;-done:
+        fmt.Println("操作完成")
+    case &lt;-ctx.Done():
+        fmt.Println("⚠️ 超时:", ctx.Err()) // → context deadline exceeded
+    }
+}</code></pre>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>写一个三层调用链 <code>A(ctx) → B(ctx) → C(ctx)</code>,在 A 中 <code>WithTimeout(100ms)</code>,在 C 里 <code>time.Sleep(200ms)</code>。验证 C 能感知到上游超时并返回 <code>ctx.Err()</code>。</li>
+      <li>用 <code>WithValue</code> 注入一个 <code>traceID</code>,在每层 log 输出。再把 key 类型从 <code>string</code> 换成自定义 <code>type ctxKey int</code>,体会类型安全。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_04_context.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L4 总览</div>
+      </a>
+      <a class="next" href="./02_context_tree.html">
+        <div class="label">下一页 →</div>
+        <div class="title">4.2 · Context 树</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

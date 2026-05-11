@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>5.1 错误接口与显式错误处理 · Lesson 5 · Error Handling · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="./lesson_05_error_handling.html">L5 · Error Handling</a>
+    <div class="lesson-group">
+      <a href="./01_error_interface.html" class="active">5.1 error 接口</a>
+      <a href="./02_panic_recover.html">5.2 panic / recover</a>
+    </div>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_05_error_handling.html">L5 · Error Handling</a>
+      <span class="sep">/</span>
+      <span class="current">5.1 error 接口</span>
+    </nav>
+
+    <h1>5.1 · 错误接口与显式错误处理 (Error Interface)</h1>
+
+    <h2 id="philosophy">5.1.1 核心设计哲学对比</h2>
+
+    <table>
+      <thead><tr><th>维度</th><th>Java 异常体系</th><th>Go 错误处理</th></tr></thead>
+      <tbody>
+        <tr><td>本质</td><td>控制流跳跃机制</td><td>普通返回值</td></tr>
+        <tr><td>处理方式</td><td>隐式,异常可以跨多层自动向上抛,直到被 catch</td><td>显式,必须每层显式处理或向上返回</td></tr>
+        <tr><td>性能开销</td><td>抛异常会生成栈快照,开销大</td><td>错误就是普通值,无额外开销</td></tr>
+        <tr><td>代码可读性</td><td>try-catch 嵌套导致主业务逻辑被淹没</td><td>错误处理和主逻辑并行,清晰可见</td></tr>
+        <tr><td>生产环境稳定性</td><td>未捕获的 <code>RuntimeException</code> 会直接导致进程崩溃</td><td>未处理的 <code>error</code> 只会作为返回值,不会导致进程崩溃</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      在 Java 中,我们习惯于使用 <code>try-catch</code> 捕获 <code>Exception</code>。这是一种<strong>控制流的跳跃</strong>。
+      而在 Go 语言中,错误(Error)被视为一种<strong>普通的值(Value)</strong>。它不是异常,你需要像处理其他返回值一样去显式地处理它。
+    </div>
+
+    <h3>Java 转 Go 典型误区</h3>
+    <div class="callout danger">
+      <span class="callout-title">❌ 错误做法</span>
+      模仿 Java 的异常,写一个统一的 catch-all 中间件把所有 <code>error</code> 捕获,返回统一 HTTP 响应。
+    </div>
+    <div class="callout tip">
+      <span class="callout-title">✅ 正确做法</span>
+      每层显式处理错误,要么就地处理(重试、降级),要么<strong>给错误添加上下文信息</strong>后再向上返回。
+    </div>
+
+    <pre class="language-go"><code>// 给错误添加上下文,方便排查问题
+user, err := userService.Find(id)
+if err != nil {
+    // 用 fmt.Errorf 的 %w 包装原始错误,上层可以用 errors.Is/As 判断错误类型
+    return nil, fmt.Errorf("get user failed: %w", err)
+}</code></pre>
+
+    <h2 id="error-essence">5.1.2 <code>error</code> 本质上只是一个接口</h2>
+    <p>Go 底层对错误的定义极其简单,它只是一个带 <code>Error()</code> 方法的接口:</p>
+
+    <pre class="language-go"><code>// 源码定义
+type error interface {
+    Error() string
+}</code></pre>
+
+    <p>这意味着<strong>任何实现了 <code>Error() string</code> 方法的类型都自动是一个 <code>error</code></strong>(隐式接口实现,无需 <code>implements</code> 关键字)。</p>
+
+    <h2 id="create">5.1.3 创建错误</h2>
+    <ul>
+      <li><strong>基础错误</strong>:使用 <code>errors.New("错误信息")</code></li>
+      <li><strong>格式化错误</strong>:使用 <code>fmt.Errorf("找不到用户: %d", id)</code></li>
+    </ul>
+
+    <pre class="language-go"><code>import (
+    "errors"
+    "fmt"
+)
+
+var ErrNotFound = errors.New("not found") // 哨兵错误,可被 errors.Is 比较
+
+func Find(id int) error {
+    return fmt.Errorf("user %d: %w", id, ErrNotFound) // 用 %w 包装
+}</code></pre>
+
+    <h2 id="multi-return">5.1.4 核心心智模型:多返回值与 <code>if err != nil</code></h2>
+
+    <p>在 Go 的微服务开发中,几乎所有可能失败的函数,<strong>最后的一个返回值一定是 <code>error</code></strong>。调用方<strong>必须</strong>显式检查 <code>err</code> 是否为 <code>nil</code>(表示成功)。</p>
+
+    <div class="callout java">
+      <span class="callout-title">Java vs Go 对应对比</span>
+      <ul>
+        <li><strong>Java</strong>:<code>User user = userService.find(id);</code>(如果找不到抛出 <code>UserNotFoundException</code>)</li>
+        <li><strong>Go</strong>:</li>
+      </ul>
+      <pre class="language-go"><code>user, err := userService.Find(id)
+if err != nil {
+    // 错误处理,比如记录日志、或者把错误继续向上层返回 (return nil, err)
+    return nil, err
+}
+// 走到这里说明 err == nil,业务继续</code></pre>
+    </div>
+
+    <h2 id="wrapping">5.1.5 错误包装链 (Error Wrapping)</h2>
+
+    <p>从 Go 1.13 开始,标准库引入 <code>%w</code> 动词,把原始错误<strong>包装</strong>进新错误中,形成一条可被 <code>errors.Is</code> / <code>errors.As</code> 沿着追溯的<strong>错误链</strong>。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  DB["sql.ErrNoRows<br/>(底层错误)"]:::root
+    --> DAO["dao: user 42 not found:<br/>%w sql.ErrNoRows"]:::wrap
+    --> SVC["service: get user failed:<br/>%w dao err"]:::wrap
+    --> CTRL["controller: handle request failed:<br/>%w service err"]:::wrap
+    --> LOG["最终日志输出 / 上报 Sentry<br/>errors.Is(err, sql.ErrNoRows) == true ✓"]:::ok
+
+  classDef root fill:#f38ba8,color:#11111b;
+  classDef wrap fill:#fab387,color:#11111b;
+  classDef ok   fill:#a6e3a1,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · <code>%w</code> 形成的错误包装链,顶层仍可识别底层根因</div>
+    </div>
+
+    <pre class="language-go"><code>// 取出原始错误
+if errors.Is(err, sql.ErrNoRows) {
+    return http.StatusNotFound
+}
+
+// 取出具体类型
+var nfErr *NotFoundError
+if errors.As(err, &amp;nfErr) {
+    log.Printf("missing %s id=%d", nfErr.Resource, nfErr.ID)
+}</code></pre>
+
+    <h2 id="custom-error">5.1.6 自定义错误类型 (Custom Errors)</h2>
+
+    <p>既然 <code>error</code> 是个接口,我们就可以用结构体(Struct)来实现它,从而携带更多的上下文信息(比如错误码):</p>
+
+    <pre class="language-go"><code>type NotFoundError struct {
+    Resource string
+    ID       int
+}
+
+// 只要实现了 Error() string,它就是个 error
+func (e *NotFoundError) Error() string {
+    return fmt.Sprintf("%s with ID %d not found", e.Resource, e.ID)
+}
+
+// 使用:
+func GetUser(id int) (*User, error) {
+    u := store.Lookup(id)
+    if u == nil {
+        return nil, &amp;NotFoundError{Resource: "User", ID: id}
+    }
+    return u, nil
+}</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点预告</span>
+      自定义 <code>error</code> 类型用 <strong>指针接收者</strong> (<code>*NotFoundError</code>) 实现 <code>Error()</code> 时,
+      <strong>千万不要</strong>在函数中返回一个 <em>nil 的 <code>*NotFoundError</code> 变量</em>——这会导致接口非 nil 的经典坑。
+      下一课 <a href="../lesson_06_java_go_pitfalls/02_interface_nil_pitfalls.html">L6.2 interface nil 坑</a> 会用 SVG 详细拆解原理。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>定义一个 <code>ValidationError{Field string; Reason string}</code>,实现 <code>Error()</code>,并在一个示例函数中返回。</li>
+      <li>用 <code>fmt.Errorf("%w", err)</code> 写一条 3 层调用的错误链,在最外层用 <code>errors.Is</code> 验证底层错误能被识别。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_05_error_handling.html">
+        <div class="label">← 上一页</div>
+        <div class="title">Lesson 5 总览</div>
+      </a>
+      <a class="next" href="./02_panic_recover.html">
+        <div class="label">下一页 →</div>
+        <div class="title">5.2 · panic / recover</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

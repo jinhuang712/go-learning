@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lesson 1 · Basics 基础语法 · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="./lesson_01_basics.html" class="active">L1 · Basics 基础语法</a>
+    <div class="lesson-group">
+      <a href="./01_variables_types.html">1.1 变量 / 常量 / 类型</a>
+      <a href="./02_control_flow.html">1.2 控制流 / defer</a>
+      <a href="./03_functions_visibility.html">1.3 函数 / 可见性</a>
+      <a href="./04_java_go_mapping.html">1.4 Java↔Go 关键字</a>
+      <a href="./05_copy_clone.html">1.5 深浅拷贝</a>
+    </div>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <span class="current">Unit 1 · Lesson 1 · Basics</span>
+    </nav>
+
+    <h1>Lesson 1 · Go 基础语法 Basics</h1>
+
+    <p>本课程覆盖 Go 语言核心基础概念,处处与 Java 对照。我们把内容拆成 5 个 Section,从最基础的变量声明,一路推进到 Go 一切皆值传递、深浅拷贝陷阱。</p>
+
+    <div class="callout note">
+      <span class="callout-title">学习地图</span>
+      下面是本 Lesson 5 个 Section 的拓扑结构:从语法骨架 → 控制流 → 函数边界 → Java 对照 → 值语义陷阱。
+    </div>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  S1[1.1<br/>变量 / 常量 / 类型]:::sec --> S2[1.2<br/>控制流 / defer]:::sec
+  S2 --> S3[1.3<br/>函数 / 可见性]:::sec
+  S3 --> S4[1.4<br/>Java ↔ Go 关键字]:::sec
+  S4 --> S5[1.5<br/>深浅拷贝陷阱]:::pit
+
+  classDef sec fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef pit fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+      </div>
+      <div class="diagram-caption">图 · Lesson 1 的 5 个 Section 推进顺序</div>
+    </div>
+
+    <h2 id="sections">📑 课程目录</h2>
+
+    <div class="card-grid">
+      <a class="card" href="./01_variables_types.html">
+        <div class="card-title">1.1 · 变量、常量与基本数据类型</div>
+        <div class="card-desc">
+          <code>var</code> / <code>:=</code> / <code>const</code> / <code>iota</code>;
+          <code>int</code> / <code>string</code> / <code>bool</code> / <code>rune</code> / <code>byte</code>
+        </div>
+      </a>
+      <a class="card" href="./02_control_flow.html">
+        <div class="card-title">1.2 · 控制流与 Defer</div>
+        <div class="card-desc">
+          只有 <code>for</code> · <code>if</code> 带初始化 · <code>switch</code> 默认不穿透 · <code>defer</code> 替代 <code>finally</code>
+        </div>
+      </a>
+      <a class="card" href="./03_functions_visibility.html">
+        <div class="card-title">1.3 · 函数与可见性</div>
+        <div class="card-desc">
+          多返回值、类型后置、首字母大小写控制访问权限
+        </div>
+      </a>
+      <a class="card" href="./04_java_go_mapping.html">
+        <div class="card-title">1.4 · Java ↔ Go 关键字对照</div>
+        <div class="card-desc">
+          <code>class</code> / <code>extends</code> / <code>this</code> / <code>final</code> / <code>try-catch</code> 全方位映射
+          <span class="badge badge-java">JAVA</span>
+        </div>
+      </a>
+      <a class="card" href="./05_copy_clone.html">
+        <div class="card-title">1.5 · 深浅拷贝 Copy vs Clone</div>
+        <div class="card-desc">
+          一切皆值传递 · Slice/Map 的浅拷贝污染坑点 · Deep Copy 正确姿势
+          <span class="badge badge-pitfall">PITFALL</span>
+        </div>
+      </a>
+    </div>
+
+    <h2 id="run">🚀 运行方式</h2>
+    <p>在 <code>main.go</code> 中调用 <code>basics.Run()</code> 即可执行本 Lesson 演示代码。</p>
+    <pre class="language-bash"><code>go run .
+go test ./unit_01_fundamentals/lesson_01_basics</code></pre>
+
+    <div class="page-nav">
+      <a class="prev" href="../../study-plan.html">
+        <div class="label">← 上一页</div>
+        <div class="title">学习总览</div>
+      </a>
+      <a class="next" href="./01_variables_types.html">
+        <div class="label">开始 →</div>
+        <div class="title">1.1 · 变量与基本类型</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

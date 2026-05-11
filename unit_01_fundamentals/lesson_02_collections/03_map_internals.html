@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2.3 映射 Map 核心剖析与并发陷阱 · Lesson 2 Collections</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="./lesson_02_collections.html">L2 · Collections 集合</a>
+    <div class="lesson-group">
+      <a href="./01_array_internals.html">2.1 数组 Array</a>
+      <a href="./02_slice_internals.html">2.2 切片 Slice</a>
+      <a href="./03_map_internals.html" class="active">2.3 映射 Map</a>
+    </div>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_02_collections.html">L2 · Collections</a>
+      <span class="sep">/</span>
+      <span class="current">2.3 映射 Map</span>
+    </nav>
+
+    <h1>2.3 映射 (Map) 核心剖析与并发陷阱</h1>
+
+    <p>Go 的 <code>map</code> 等同于 Java 中的 <code>HashMap</code>,但它在设计上有几个非常显著的特点和“坑点”,在微服务开发中极易中招。</p>
+
+    <h2 id="init">2.1 Map 的声明与初始化</h2>
+    <ul>
+      <li><code>map</code> 是引用类型,<strong>零值是 <code>nil</code></strong>。</li>
+      <li><strong>坑点 1</strong>: 往 <code>nil</code> 的 map 中写数据会导致程序直接崩溃 (<code>panic</code>)。</li>
+      <li><strong>正确姿势</strong>: 必须用 <code>make</code> 或者字面量初始化。</li>
+    </ul>
+
+    <pre class="language-go"><code>// 错误 (会 panic)
+var m1 map[string]int
+// m1["A"] = 1
+
+// 正确
+m2 := make(map[string]int) // 也可以指定初始容量 make(..., 10)</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  D["var m map[string]int"]:::nilv --> Z["零值 nil"]:::nilv
+  Z -->|"读 m[\"x\"]"| R["✅ 返回零值 0"]:::ok
+  Z -->|"写 m[\"x\"]=1"| P["💥 panic: assignment to entry in nil map"]:::bad
+
+  M2["make(map[string]int)"]:::mk --> OK["✅ 可读可写"]:::ok
+
+  classDef nilv fill:#f9e2af,color:#11111b;
+  classDef ok   fill:#a6e3a1,color:#11111b;
+  classDef bad  fill:#f38ba8,color:#11111b;
+  classDef mk   fill:#89b4fa,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · <code>nil</code> map 可读不可写,写入直接 panic;必须 <code>make</code> 才能正常使用</div>
+    </div>
+
+    <h2 id="hash-internal">Map 底层:Hash → Bucket 链 + Overflow Bucket</h2>
+    <p>Go 的 <code>map</code> 在运行时是一个 <code>hmap</code> 结构,内部维护一个 <strong>bucket 数组</strong>(每个 bucket 默认存放 8 个 K/V)。当一个 bucket 装满时,Go 会挂一个 <strong>overflow bucket</strong> 形成链表。</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 320" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="12">
+        <defs>
+          <marker id="arrM" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+          <marker id="arrM2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#fab387" />
+          </marker>
+        </defs>
+
+        <!-- key + hash -->
+        <rect x="20" y="40" width="140" height="50" rx="6" fill="#313244" stroke="#94e2d5" />
+        <text x="90" y="60" fill="#94e2d5" text-anchor="middle" font-weight="700">key = "Alice"</text>
+        <text x="90" y="80" fill="#cdd6f4" text-anchor="middle" font-size="11">hash(key)</text>
+
+        <rect x="20" y="110" width="140" height="40" rx="6" fill="#1e1e2e" stroke="#fab387" />
+        <text x="90" y="135" fill="#fab387" text-anchor="middle">low bits → bucket #</text>
+
+        <rect x="20" y="160" width="140" height="40" rx="6" fill="#1e1e2e" stroke="#cba6f7" />
+        <text x="90" y="185" fill="#cba6f7" text-anchor="middle">high 8 bits → tophash</text>
+
+        <line x1="160" y1="130" x2="220" y2="130" stroke="#89b4fa" stroke-width="2" marker-end="url(#arrM)" />
+
+        <!-- buckets array -->
+        <text x="380" y="30" fill="#cba6f7" text-anchor="middle" font-weight="700">buckets 数组 (2^B 个)</text>
+
+        <rect x="220" y="50" width="100" height="60" rx="6" fill="#313244" stroke="#cdd6f4" />
+        <text x="270" y="72" fill="#cdd6f4" text-anchor="middle">bucket[0]</text>
+        <text x="270" y="92" fill="#6c7086" text-anchor="middle" font-size="11">8 K/V slots</text>
+
+        <rect x="220" y="120" width="100" height="60" rx="6" fill="#313244" stroke="#fab387" stroke-width="2" />
+        <text x="270" y="142" fill="#fab387" text-anchor="middle" font-weight="700">bucket[1] ←</text>
+        <text x="270" y="162" fill="#cdd6f4" text-anchor="middle" font-size="11">8 K/V slots</text>
+
+        <rect x="220" y="190" width="100" height="60" rx="6" fill="#313244" stroke="#cdd6f4" />
+        <text x="270" y="212" fill="#cdd6f4" text-anchor="middle">bucket[2]</text>
+        <text x="270" y="232" fill="#6c7086" text-anchor="middle" font-size="11">8 K/V slots</text>
+
+        <rect x="220" y="260" width="100" height="40" rx="6" fill="#313244" stroke="#cdd6f4" />
+        <text x="270" y="285" fill="#cdd6f4" text-anchor="middle">bucket[..]</text>
+
+        <!-- overflow chain from bucket[1] -->
+        <line x1="320" y1="150" x2="380" y2="150" stroke="#fab387" stroke-width="2" marker-end="url(#arrM2)" />
+        <rect x="380" y="120" width="140" height="64" rx="6" fill="#45475a" stroke="#fab387" />
+        <text x="450" y="142" fill="#fab387" text-anchor="middle">overflow #1</text>
+        <text x="450" y="162" fill="#cdd6f4" text-anchor="middle" font-size="11">tophash | key | val</text>
+        <text x="450" y="178" fill="#6c7086" text-anchor="middle" font-size="11">8 个槽位</text>
+
+        <line x1="520" y1="150" x2="560" y2="150" stroke="#fab387" stroke-width="2" marker-end="url(#arrM2)" />
+        <rect x="560" y="120" width="140" height="64" rx="6" fill="#45475a" stroke="#fab387" stroke-dasharray="4,3" />
+        <text x="630" y="142" fill="#fab387" text-anchor="middle">overflow #2</text>
+        <text x="630" y="162" fill="#cdd6f4" text-anchor="middle" font-size="11">tophash | key | val</text>
+        <text x="630" y="178" fill="#6c7086" text-anchor="middle" font-size="11">链表延伸...</text>
+
+        <!-- legend -->
+        <text x="380" y="270" fill="#a6e3a1" font-size="11">查询流程: hash → 定位 bucket[i] → 比 tophash → 比 key</text>
+        <text x="380" y="290" fill="#cdd6f4" font-size="11">若主 bucket 装满则走 overflow 链;装载因子超阈值触发 grow</text>
+      </svg>
+      <div class="diagram-caption">图 · Map 查询流程: <code>hash(key)</code> → bucket 索引 → tophash 快速过滤 → 比较完整 key</div>
+    </div>
+
+    <h2 id="comma-ok">2.2 查找与 "Comma ok" 模式</h2>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      在 Java 中,如果 <code>map.get(key)</code> 找不到,会返回 <code>null</code>。
+      但在 Go 中,如果 key 不存在,<strong>它会返回 Value 类型的零值</strong>(比如 int 返回 0,string 返回 <code>""</code>)。
+    </div>
+
+    <p>那么,你怎么知道这个 <code>0</code> 是因为没找到,还是因为别人存的就是 <code>0</code> 呢?
+    这就是 Go 特有的 <code>comma ok</code> 语法:</p>
+
+    <pre class="language-go"><code>val, ok := m["Alice"]
+if !ok {
+    fmt.Println("Alice 不在 map 里")
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  Q["val, ok := m[k]"] --> H{"key 是否存在?"}
+  H -- "存在" --> P1["val = 实际值<br/>ok = true"]:::ok
+  H -- "不存在" --> P2["val = 零值<br/>ok = false"]:::warn
+
+  classDef ok   fill:#a6e3a1,color:#11111b;
+  classDef warn fill:#f9e2af,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · comma-ok 模式:用 <code>ok</code> 区分“真的不存在”和“值就是零值”</div>
+    </div>
+
+    <h2 id="random-order">2.3 遍历的随机性</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 2 · 遍历绝对无序</span>
+      Go 的 <code>map</code> 遍历是<strong>绝对无序的</strong>(底层甚至故意加了随机种子)。
+      千万不要在代码中依赖 <code>for k, v := range m</code> 的输出顺序。
+      如果需要有序,只能把 keys 拿出来放到切片里排序,再遍历切片。
+    </div>
+
+    <pre class="language-go"><code>// 需要有序遍历?先 sort keys
+keys := make([]string, 0, len(m))
+for k := range m {
+    keys = append(keys, k)
+}
+sort.Strings(keys)
+for _, k := range keys {
+    fmt.Println(k, m[k])
+}</code></pre>
+
+    <h2 id="concurrent">2.4 并发不安全 (Fatal Error)</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">💀 最致命的坑</span>
+      Go 的原生 <code>map</code> <strong>不支持并发读写</strong>。
+      如果一个 goroutine 在写 map,另一个 goroutine 在读/写 map,Go 运行时会直接抛出致命错误
+      <code>fatal error: concurrent map read and map write</code>,
+      这会导致整个微服务进程立刻挂掉,<strong>连 <code>recover</code> 都救不回来!</strong>
+    </div>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对比</span>
+      类似 Java 的 <code>HashMap</code>(也是线程不安全的),但在 Java 里最多是数据错乱或者死循环;Go 里是<strong>直接 kill 进程</strong>。
+    </div>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  participant G1 as goroutine A (写)
+  participant Map as 原生 map
+  participant G2 as goroutine B (读/写)
+  G1->>Map: m["x"] = 1
+  Note over Map: 运行时检测 hashWriting flag
+  G2->>Map: v := m["x"] (或 m["x"]=2)
+  Map-->>G2: 💀 fatal error<br/>concurrent map read and map write
+  Note over G1,G2: 整个进程直接挂掉<br/>recover 也救不回来
+      </div>
+      <div class="diagram-caption">图 · 原生 map 并发读写直接 fatal,无法被 <code>recover()</code> 捕获</div>
+    </div>
+
+    <h3>解决方案 (如何在微服务中安全使用 Map)</h3>
+
+    <h4>方案 A:原生 <code>map</code> + <code>sync.RWMutex</code> (读写锁)</h4>
+    <p>这是最通用、性能最可控的方式。通常会把 map 和锁封装在一个结构体里:</p>
+
+    <pre class="language-go"><code>type SafeCache struct {
+    mu sync.RWMutex
+    m  map[string]string
+}
+
+func (c *SafeCache) Get(key string) (string, bool) {
+    c.mu.RLock() // 读锁:允许多个 goroutine 同时读
+    defer c.mu.RUnlock()
+    val, ok := c.m[key]
+    return val, ok
+}
+
+func (c *SafeCache) Set(key, val string) {
+    c.mu.Lock() // 写锁:独占,阻塞其他所有读和写
+    defer c.mu.Unlock()
+    c.m[key] = val
+}</code></pre>
+
+    <h4>方案 B:使用官方的 <code>sync.Map</code></h4>
+    <p>Go 标准库提供了一个并发安全的 <code>sync.Map</code>,类似于 Java 的 <code>ConcurrentHashMap</code>,但它的底层实现非常特殊(利用了两个原生的 map 和原子操作)。</p>
+
+    <ul>
+      <li><strong>适用场景</strong>:只适合<strong>读多写少</strong>(比如配置缓存),或者各个 goroutine 读写的 Key 完全不交叉的情况。</li>
+      <li><strong>缺点</strong>:API 不如原生 map 好用(需要频繁使用 <code>interface{}</code> / <code>any</code> 类型断言),在写操作密集的场景下,性能反而不如<strong>方案 A</strong>。</li>
+    </ul>
+
+    <pre class="language-go"><code>var sm sync.Map
+sm.Store("Language", "Go") // 存入
+val, ok := sm.Load("Language") // 读取,val 是 any 类型</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  N["并发场景下用什么?"]
+  N --> A["map + sync.RWMutex<br/>读写比例可控,API 友好"]:::good
+  N --> B["sync.Map<br/>读多写少 / Key 不交叉"]:::warn
+  N --> C["❌ 原生 map<br/>并发直接 fatal"]:::bad
+
+  classDef good fill:#a6e3a1,color:#11111b;
+  classDef warn fill:#f9e2af,color:#11111b;
+  classDef bad  fill:#f38ba8,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 并发场景下 Map 选型决策树</div>
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>实现一个 <code>SafeCache</code>,并在 100 个 goroutine 中并发读写,用 <code>-race</code> 跑测试验证无 race。</li>
+      <li>用 <code>sync.Map</code> 重新实现一遍 <code>SafeCache</code>,写 benchmark 对比两者在“读 9 : 写 1”和“读 1 : 写 9”两种场景下的吞吐。</li>
+      <li>故意触发一次 <code>fatal error: concurrent map read and map write</code> 看真实报错栈(用 <code>recover</code> 验证捕获不到)。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./02_slice_internals.html">
+        <div class="label">← 上一页</div>
+        <div class="title">2.2 · 切片 Slice</div>
+      </a>
+      <a class="next" href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">
+        <div class="label">下一课 →</div>
+        <div class="title">Lesson 3 · Struct & Interface</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

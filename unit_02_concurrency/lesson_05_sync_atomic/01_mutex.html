@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>5.1 Mutex / RWMutex · Lesson 5 Sync</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="./lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <div class="lesson-group">
+      <a href="./01_mutex.html" class="active">5.1 Mutex / RWMutex</a>
+    </div>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+      <span class="sep">/</span>
+      <span class="current">5.1 Mutex / RWMutex</span>
+    </nav>
+
+    <h1>5.1 Mutex / RWMutex 互斥锁与读写锁</h1>
+
+    <p><code>sync.Mutex</code> 是 Go 最基础的同步原语,用来保护「临界区」(critical section):同一时间最多只允许一个 goroutine 进入。它的 API 极简——只有 <code>Lock()</code> 和 <code>Unlock()</code> 两个方法,没有 Java 那种 <code>tryLock(timeout)</code> / <code>lockInterruptibly()</code>。</p>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照 · ReentrantLock vs sync.Mutex</span>
+      <table>
+        <thead><tr><th>能力</th><th>Java <code>ReentrantLock</code></th><th>Go <code>sync.Mutex</code></th></tr></thead>
+        <tbody>
+          <tr><td>可重入</td><td>✅ 同一线程可多次 lock</td><td>❌ 同一 goroutine 重复 Lock 直接死锁</td></tr>
+          <tr><td>tryLock</td><td>✅ 有,可以非阻塞</td><td>✅ Go 1.18+ 有 <code>TryLock</code></td></tr>
+          <tr><td>带超时</td><td>✅ <code>tryLock(d)</code></td><td>❌ 没有,要自己用 channel 实现</td></tr>
+          <tr><td>公平锁</td><td>✅ 可选 fair=true</td><td>❌ 默认非公平,但 Go 1.9+ 有<strong>饥饿模式</strong>兜底</td></tr>
+          <tr><td>Condition</td><td>✅ <code>lock.newCondition()</code></td><td>✅ <code>sync.Cond</code> (但要配合 Mutex)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 id="mutex-api">1. Mutex 基本用法</h2>
+
+    <pre class="language-go"><code>type SafeCounter struct {
+    mu    sync.Mutex   // 注意:零值即可用,无需初始化
+    count int
+}
+
+func (c *SafeCounter) Increment() {
+    c.mu.Lock()
+    defer c.mu.Unlock()    // 习惯性 defer,防止 panic 导致死锁
+    c.count++
+}
+
+func (c *SafeCounter) Get() int {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    return c.count
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">两个语法细节</span>
+      <ul>
+        <li><code>sync.Mutex</code> 的零值就是「未上锁」的可用状态——<strong>不要</strong> <code>new(sync.Mutex)</code>,也不要 <code>= sync.Mutex{}</code>,直接声明字段就行。</li>
+        <li>把 <code>mu</code> 放在<strong>它保护的字段紧上方</strong>,Go 社区有这个约定俗成的命名习惯,看 stdlib 的源码就知道。</li>
+      </ul>
+    </div>
+
+    <h2 id="state-machine">2. Mutex 状态机(Go 1.9+ 饥饿模式)</h2>
+
+    <p>Go 的 Mutex 内部有<strong>两种模式</strong>:</p>
+
+    <ul>
+      <li><strong>正常模式</strong>(默认):新到来的 goroutine 和被唤醒的 goroutine 一起<strong>抢锁</strong>。新到的因为已经在运行,有 CPU 局部性优势,通常先拿到。这种模式吞吐量最高。</li>
+      <li><strong>饥饿模式</strong>:如果一个 goroutine 等了超过 <strong>1ms</strong> 还没拿到锁,Mutex 切到饥饿模式——<strong>锁直接交给等待队列头部</strong>,新到的不再参与抢。这避免了「永远等不到」的尾延迟。</li>
+    </ul>
+
+    <div class="diagram">
+      <div class="mermaid">
+stateDiagram-v2
+    [*] --> Unlocked: 零值
+    Unlocked --> Locked: Lock() 抢到 (CAS 成功)
+
+    Locked --> Awakening: Unlock() 释放<br/>有等待者
+    Locked --> Unlocked: Unlock() 释放<br/>无等待者
+
+    Awakening --> Locked: 等待者抢到锁
+    Awakening --> Starvation: 等待 > 1ms
+
+    Starvation --> Locked: 直接交给队首
+    Locked --> Starvation: Unlock 后<br/>仍处于饥饿模式
+    Starvation --> Unlocked: 队列已空<br/>退出饥饿模式
+
+    note right of Awakening
+      正常模式
+      新到 vs 唤醒者 抢锁
+      新到优先（CPU局部性）
+    end note
+
+    note right of Starvation
+      Go 1.9+ 引入
+      锁交给队首
+      避免长尾延迟
+    end note
+      </div>
+      <div class="diagram-caption">图 · <code>sync.Mutex</code> 的内部状态机:正常模式 vs 饥饿模式</div>
+    </div>
+
+    <h2 id="rwmutex">3. RWMutex 读写锁</h2>
+
+    <p>很多业务场景<strong>读远多于写</strong>(配置缓存、路由表、用户信息),用普通 Mutex 会让所有读者排队互相阻塞。
+    <code>sync.RWMutex</code> 提供了<strong>多读单写</strong>的语义:</p>
+
+    <table>
+      <thead><tr><th>同时持有者</th><th>读锁 <code>RLock</code></th><th>写锁 <code>Lock</code></th></tr></thead>
+      <tbody>
+        <tr><td>读锁 <code>RLock</code></td><td>✅ 多个并发</td><td>❌ 互斥</td></tr>
+        <tr><td>写锁 <code>Lock</code></td><td>❌ 互斥</td><td>❌ 互斥</td></tr>
+      </tbody>
+    </table>
+
+    <pre class="language-go"><code>type SafeReadWrite struct {
+    mu    sync.RWMutex
+    value string
+}
+
+func (s *SafeReadWrite) Read() string {
+    s.mu.RLock()            // 读锁,允许多个并发
+    defer s.mu.RUnlock()
+    return s.value
+}
+
+func (s *SafeReadWrite) Write(v string) {
+    s.mu.Lock()             // 写锁,互斥
+    defer s.mu.Unlock()
+    s.value = v
+}</code></pre>
+
+    <h2 id="rw-timeline">4. RWMutex 时序:读读并行 vs 读写互斥</h2>
+
+    <p>下图展示三个 reader 和一个 writer 抢同一把 RWMutex:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant R1 as Reader 1
+    participant R2 as Reader 2
+    participant R3 as Reader 3
+    participant W as Writer
+    participant L as RWMutex
+
+    R1->>L: RLock() ✓
+    R2->>L: RLock() ✓ (与 R1 并行)
+    Note over R1,R2: 读读并行,无阻塞
+
+    W->>L: Lock() (等待)
+    Note over W: 等待所有读者释放
+
+    R3->>L: RLock() (在写者等待时阻塞)
+    Note over R3: 防止 writer 饥饿<br/>新读者会被排到 writer 后面
+
+    R1-->>L: RUnlock()
+    R2-->>L: RUnlock()
+    L-->>W: 拿到写锁 ✓
+    Note over W: 独占,所有读者被挡
+
+    W-->>L: Unlock()
+    L-->>R3: 拿到读锁 ✓
+      </div>
+      <div class="diagram-caption">图 · RWMutex 时序:读读并行、写写互斥、写在等待时阻止后续读</div>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">RWMutex 不是银弹</span>
+      <ul>
+        <li>RWMutex 的元数据开销比 Mutex<strong>大</strong>。当临界区<strong>非常短</strong>(几十 ns 的字段读取),纯 Mutex 反而更快。</li>
+        <li>RWMutex 不支持<strong>升级</strong>:持有 RLock 时再调用 Lock 会死锁。需要写时,必须 RUnlock → Lock,然后<strong>重新检查</strong>状态。</li>
+        <li>读 / 写比例如果不到 <strong>10:1</strong>,RWMutex 收益不明显。盲目用 RWMutex 是常见的「过度优化」。</li>
+      </ul>
+    </div>
+
+    <h2 id="pitfalls">5. 常见坑点</h2>
+
+    <h3>5.1 不可重入</h3>
+
+    <pre class="language-go"><code>// ❌ 死锁!Go 的 Mutex 不可重入
+func (c *Counter) IncTwice() {
+    c.mu.Lock()
+    c.Inc()           // Inc 内部又 Lock → 永远等不到
+    c.mu.Unlock()
+}
+
+func (c *Counter) Inc() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.count++
+}</code></pre>
+
+    <p><strong>正确做法</strong>:把临界区代码抽成一个 <code>incLocked()</code> 私有方法,前提是调用方已经持锁。</p>
+
+    <h3>5.2 复制 Mutex</h3>
+
+    <p><code>sync.Mutex</code> 包含内部状态,<strong>复制后状态会脱钩</strong>。<code>go vet</code> 默认会报错:</p>
+
+    <pre class="language-go"><code>// ❌ go vet: passes lock by value
+func bad(m sync.Mutex) { ... }
+
+// ✅ 永远用指针传递锁
+func good(m *sync.Mutex) { ... }
+
+// 包含 Mutex 的 struct 也要用指针接收者
+func (c *Counter) Inc() { ... }   // ✅
+func (c Counter)  Inc() { ... }   // ❌ go vet warning</code></pre>
+
+    <h3>5.3 忘记 Unlock</h3>
+
+    <pre class="language-go"><code>// ❌ 提前 return 没解锁,会永久死锁
+func bad(c *Counter) error {
+    c.mu.Lock()
+    if err := check(); err != nil {
+        return err              // 忘了 Unlock!
+    }
+    c.count++
+    c.mu.Unlock()
+    return nil
+}
+
+// ✅ 永远 defer Unlock,无视 return 路径
+func good(c *Counter) error {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if err := check(); err != nil {
+        return err
+    }
+    c.count++
+    return nil
+}</code></pre>
+
+    <h2 id="alternatives">6. 何时<strong>不</strong>用 Mutex</h2>
+
+    <ul>
+      <li><strong>单变量读改写</strong>:用 <code>atomic.AddInt64</code> / <code>atomic.LoadInt64</code>,无锁、最快。</li>
+      <li><strong>一次性初始化</strong>:用 <code>sync.Once</code>,语义比 DCL 清晰。</li>
+      <li><strong>等待一组任务完成</strong>:用 <code>sync.WaitGroup</code>。</li>
+      <li><strong>跨 goroutine 传递任务</strong>:用 channel,语义最 Go-style。</li>
+    </ul>
+
+    <h2 id="run-with-race">7. 用 <code>-race</code> 自我验证</h2>
+
+    <p>把上面 <code>SafeCounter</code> 的 <code>Lock/Unlock</code> 注释掉再运行:</p>
+
+    <pre class="language-bash"><code>go test -race ./unit_02_concurrency/lesson_05_sync_atomic</code></pre>
+
+    <p>race detector 会立刻打印 <code>WARNING: DATA RACE</code> 并指出哪两行冲突——这是验证锁是否有效的金标准。</p>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>把 <code>SafeCounter</code> 改用 <code>atomic.Int64</code> 实现,对比 1M 次并发递增的延迟和 CPU。</li>
+      <li>写一个并发安全的 <code>LRU Cache</code>:用 <code>RWMutex</code> 保护 map + linked list。压测下读多写少场景与纯 Mutex 的差距。</li>
+      <li>故意制造一次「忘记 Unlock」的死锁,在出错时观察程序行为:打印 <code>fatal error: all goroutines are asleep - deadlock!</code></li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_05_sync_atomic.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L5 总览</div>
+      </a>
+      <a class="next" href="../lesson_06_race_detector/lesson_06_race_detector.html">
+        <div class="label">下一课 →</div>
+        <div class="title">L6 · Race Detector</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

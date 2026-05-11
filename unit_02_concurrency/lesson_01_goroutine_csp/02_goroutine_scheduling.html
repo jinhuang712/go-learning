@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>1.2 调度模型 G-M-P · Lesson 1 · Goroutine & CSP · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="./lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <div class="lesson-group">
+      <a href="./01_goroutine_basics.html">1.1 Goroutine 基础</a>
+      <a href="./02_goroutine_scheduling.html" class="active">1.2 调度模型</a>
+      <a href="./03_csp_model.html">1.3 CSP 模型</a>
+      <a href="./04_waitgroup_basics.html">1.4 WaitGroup</a>
+    </div>
+    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+      <span class="sep">/</span>
+      <span class="current">1.2 调度模型</span>
+    </nav>
+
+    <h1>1.2 Goroutine 调度与栈扩容</h1>
+
+    <p>上一节学了 Goroutine 是什么,这一节我们打开 <strong>Go runtime 的发动机舱</strong>:看看几千个 Goroutine 是如何被复用到少量 OS 线程上的——这就是 <strong>G-M-P 调度模型</strong>。</p>
+
+    <h2 id="gmp">1. G-M-P 三个核心角色</h2>
+
+    <ul>
+      <li><strong>G (Goroutine)</strong>:一个 Goroutine,包含执行栈、PC、状态等</li>
+      <li><strong>M (Machine)</strong>:一个 OS 线程 (Machine 意为「机器执行单元」)</li>
+      <li><strong>P (Processor)</strong>:逻辑处理器,持有一个本地 G 队列。<strong>M 必须先拿到 P,才能执行 G</strong></li>
+    </ul>
+
+    <p>P 的数量默认等于 CPU 核心数,可通过 <code>GOMAXPROCS</code> 调整。</p>
+
+    <h2 id="gmp-svg">2. G-M-P 模型可视化</h2>
+
+    <p>下面这张图是 Go 调度器的核心拓扑——多个 G 排在 P 的本地队列里,M 绑定 P 来真正消费 G;还有一个全局队列存放溢出的 G:</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 860 460" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrowGmp" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+          <marker id="arrowSteal" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#fab387" />
+          </marker>
+        </defs>
+
+        <!-- background -->
+        <rect x="0" y="0" width="860" height="460" fill="#1e1e2e" />
+
+        <!-- Global queue -->
+        <rect x="320" y="20" width="220" height="60" rx="6" fill="#181825" stroke="#f38ba8" stroke-width="2" />
+        <text x="430" y="42" fill="#f38ba8" text-anchor="middle" font-weight="700">Global Run Queue</text>
+        <rect x="335" y="50" width="28" height="22" fill="#45475a" stroke="#cdd6f4" />
+        <text x="349" y="66" fill="#cdd6f4" text-anchor="middle" font-size="11">G</text>
+        <rect x="367" y="50" width="28" height="22" fill="#45475a" stroke="#cdd6f4" />
+        <text x="381" y="66" fill="#cdd6f4" text-anchor="middle" font-size="11">G</text>
+        <rect x="399" y="50" width="28" height="22" fill="#45475a" stroke="#cdd6f4" />
+        <text x="413" y="66" fill="#cdd6f4" text-anchor="middle" font-size="11">G</text>
+        <text x="450" y="66" fill="#6c7086" font-size="11">...</text>
+
+        <!-- P0 column -->
+        <rect x="40" y="120" width="200" height="240" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2" />
+        <text x="140" y="142" fill="#cba6f7" text-anchor="middle" font-weight="700">P0</text>
+        <text x="140" y="160" fill="#bac2de" text-anchor="middle" font-size="11">(Processor / 逻辑处理器)</text>
+        <text x="60" y="186" fill="#94e2d5" font-size="12">Local Queue:</text>
+        <rect x="60" y="196" width="36" height="26" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="78" y="214" fill="#11111b" text-anchor="middle" font-weight="700">G1</text>
+        <rect x="100" y="196" width="36" height="26" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="118" y="214" fill="#11111b" text-anchor="middle" font-weight="700">G2</text>
+        <rect x="140" y="196" width="36" height="26" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="158" y="214" fill="#11111b" text-anchor="middle" font-weight="700">G3</text>
+        <text x="60" y="252" fill="#bac2de" font-size="11">Running G:</text>
+        <rect x="60" y="262" width="120" height="34" fill="#fab387" stroke="#cdd6f4" />
+        <text x="120" y="284" fill="#11111b" text-anchor="middle" font-weight="700">G0 (running)</text>
+        <rect x="60" y="312" width="120" height="34" fill="#89b4fa" stroke="#cdd6f4" />
+        <text x="120" y="334" fill="#11111b" text-anchor="middle" font-weight="700">M0 (OS Thread)</text>
+
+        <!-- P1 column -->
+        <rect x="280" y="120" width="200" height="240" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2" />
+        <text x="380" y="142" fill="#cba6f7" text-anchor="middle" font-weight="700">P1</text>
+        <text x="380" y="160" fill="#bac2de" text-anchor="middle" font-size="11">(Processor / 逻辑处理器)</text>
+        <text x="300" y="186" fill="#94e2d5" font-size="12">Local Queue:</text>
+        <rect x="300" y="196" width="36" height="26" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="318" y="214" fill="#11111b" text-anchor="middle" font-weight="700">G4</text>
+        <rect x="340" y="196" width="36" height="26" fill="#a6e3a1" stroke="#cdd6f4" />
+        <text x="358" y="214" fill="#11111b" text-anchor="middle" font-weight="700">G5</text>
+        <text x="300" y="252" fill="#bac2de" font-size="11">Running G:</text>
+        <rect x="300" y="262" width="120" height="34" fill="#fab387" stroke="#cdd6f4" />
+        <text x="360" y="284" fill="#11111b" text-anchor="middle" font-weight="700">G6 (running)</text>
+        <rect x="300" y="312" width="120" height="34" fill="#89b4fa" stroke="#cdd6f4" />
+        <text x="360" y="334" fill="#11111b" text-anchor="middle" font-weight="700">M1 (OS Thread)</text>
+
+        <!-- P2 idle -->
+        <rect x="520" y="120" width="200" height="240" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2" stroke-dasharray="6 4" />
+        <text x="620" y="142" fill="#cba6f7" text-anchor="middle" font-weight="700">P2 (idle)</text>
+        <text x="620" y="160" fill="#bac2de" text-anchor="middle" font-size="11">(Local Queue 空)</text>
+        <text x="540" y="200" fill="#bac2de" font-size="12">→ Work Stealing:</text>
+        <text x="540" y="222" fill="#bac2de" font-size="12">  从 P0/P1 偷一半 G</text>
+        <text x="540" y="244" fill="#bac2de" font-size="12">→ 或者从 Global Queue</text>
+        <text x="540" y="266" fill="#bac2de" font-size="12">  取 G 执行</text>
+        <rect x="540" y="312" width="120" height="34" fill="#89b4fa" stroke="#cdd6f4" />
+        <text x="600" y="334" fill="#11111b" text-anchor="middle" font-weight="700">M2 (OS Thread)</text>
+
+        <!-- arrows: P0 take G0 -->
+        <line x1="178" y1="208" x2="178" y2="262" stroke="#89b4fa" stroke-width="2" marker-end="url(#arrowGmp)" />
+
+        <!-- work stealing arrow from P0 to P2 -->
+        <path d="M 220 208 Q 380 90 540 215" stroke="#fab387" stroke-width="2" fill="none" stroke-dasharray="5 3" marker-end="url(#arrowSteal)" />
+        <text x="380" y="100" fill="#fab387" text-anchor="middle" font-size="11" font-style="italic">work stealing</text>
+
+        <!-- Bottom legend -->
+        <rect x="40" y="395" width="780" height="50" rx="6" fill="#181825" stroke="#45475a" />
+        <text x="60" y="418" fill="#a6e3a1" font-weight="700">G</text><text x="80" y="418" fill="#cdd6f4">= Goroutine (含栈 + PC + 状态)</text>
+        <text x="280" y="418" fill="#89b4fa" font-weight="700">M</text><text x="300" y="418" fill="#cdd6f4">= OS Thread (真正占 CPU 的线程)</text>
+        <text x="540" y="418" fill="#cba6f7" font-weight="700">P</text><text x="560" y="418" fill="#cdd6f4">= Processor (调度上下文,持本地队列)</text>
+        <text x="60" y="438" fill="#fab387" font-weight="700">→</text><text x="80" y="438" fill="#cdd6f4">M 必须绑定 P 才能执行 G;P 数量 = GOMAXPROCS</text>
+      </svg>
+      <div class="diagram-caption">图 · G-M-P 三层调度模型 + 工作窃取 (Work Stealing)</div>
+    </div>
+
+    <h2 id="scheduling">3. 调度流程关键点</h2>
+    <ul>
+      <li>P 默认数量 = CPU 核心数 (可用 <code>runtime.GOMAXPROCS(n)</code> 修改)</li>
+      <li>每个 P 持有一个本地 G 队列 (容量 256),减少全局锁竞争</li>
+      <li>M 必须绑定 P 才能执行 G——只有 P 是「执行许可证」</li>
+      <li><strong>系统调用阻塞</strong>:当 G 陷入 syscall (如读文件),M 会被「卡住」,Go runtime 会把 P 从 M 上摘下来,交给另一个空闲 M 继续跑其他 G</li>
+      <li><strong>Work Stealing</strong>:某个 P 的本地队列空了,会先从全局队列拿,再从其他 P 偷一半 G</li>
+    </ul>
+
+    <h2 id="stack">4. Goroutine 的动态栈</h2>
+
+    <p>Java Thread 启动时就要分配 1-2MB 固定栈;Goroutine 不一样——它从 <strong>2KB</strong> 开始,按需扩容:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  S0["新 goroutine<br/>2KB 栈"]:::s --> R0[函数调用深度增加]
+  R0 --> C{"栈空间够?"}
+  C -- 够 --> Run[正常执行]:::ok
+  C -- 不够 --> X["1. 分配 2× 新栈<br/>2. memmove 复制旧栈<br/>3. 调整所有指针"]:::warn
+  X --> S1["栈变成 4KB / 8KB ...<br/>最多到 1GB"]:::s
+  S1 --> R0
+
+  Z[GC 时栈也会缩容] -.-> S0
+
+  classDef s fill:#94e2d5,color:#11111b;
+  classDef ok fill:#a6e3a1,color:#11111b;
+  classDef warn fill:#fab387,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · Goroutine 栈的动态扩容/缩容流程</div>
+    </div>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      Java Thread 栈大小由 <code>-Xss</code> 决定,通常 1MB 起;1000 个 Java Thread 直接吃掉 1GB 内存。
+      而 1000 个 Goroutine 起步只占 2MB——这就是 Goroutine 能轻松上万的物理原因。
+    </div>
+
+    <h2 id="full-example">5. 观察实战</h2>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "runtime"
+    "sync"
+    "time"
+)
+
+func main() {
+    fmt.Println("GOMAXPROCS:", runtime.GOMAXPROCS(0))
+    fmt.Println("初始 Goroutine 数:", runtime.NumGoroutine())  // 1
+
+    var wg sync.WaitGroup
+    for i := 0; i &lt; 10000; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            time.Sleep(1 * time.Millisecond)
+        }(i)
+    }
+
+    fmt.Println("峰值 Goroutine 数:", runtime.NumGoroutine())  // ~10001
+    wg.Wait()
+    fmt.Println("结束后 Goroutine 数:", runtime.NumGoroutine())  // 1
+}</code></pre>
+
+    <h2 id="pitfalls">6. 生产坑点</h2>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 1:Goroutine 泄露</span>
+      <strong>典型场景</strong>:Channel 永远阻塞、忘记 cancel Context、循环依赖。
+      <strong>检测</strong>:<code>pprof</code> 的 goroutine profile,或周期性打印 <code>runtime.NumGoroutine()</code>。
+      <strong>解决</strong>:每个 goroutine 必须有明确退出路径 (close channel / context.Done() / 完成 return)。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2:滥用 GOMAXPROCS</span>
+      默认值 (CPU 核心数) 几乎是最优解。容器化部署时注意:Go &lt; 1.5 在 cgroup 受限的容器里看到的核数是宿主机的;
+      用 <code>uber-go/automaxprocs</code> 库自动读 cgroup CPU 配额——这是生产环境必装。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3:深递归导致频繁栈扩容</span>
+      栈扩容是 <code>2KB → 4KB → 8KB → ...</code> 翻倍涨,每次涨都要 memmove 整块栈。
+      深度递归 (如解析嵌套 JSON) 会频繁触发,影响性能。
+      用 <code>GODEBUG=gctrace=1</code> 观察,或把递归改成迭代/堆分配大对象。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>创建不同数量的 Goroutine (100, 1000, 10000),用 <code>runtime.ReadMemStats()</code> 测量内存占用差异。</li>
+      <li>修改 <code>GOMAXPROCS</code> 为 1, 2, 4, 8,跑 CPU 密集型任务,记录耗时变化。再对比 IO 密集型任务的差异。</li>
+      <li>写一个会泄露 goroutine 的程序 (channel 永久阻塞),用 <code>net/http/pprof</code> 在浏览器查看泄露点。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_goroutine_basics.html">
+        <div class="label">← 上一页</div>
+        <div class="title">1.1 Goroutine 基础</div>
+      </a>
+      <a class="next" href="./03_csp_model.html">
+        <div class="label">下一页 →</div>
+        <div class="title">1.3 CSP 模型</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

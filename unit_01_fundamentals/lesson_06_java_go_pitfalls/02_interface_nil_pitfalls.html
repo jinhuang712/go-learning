@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>6.2 接口 nil 判断坑点 · Lesson 6 · Java→Go 坑点 · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="./lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+    <div class="lesson-group">
+      <a href="./01_value_pointer_pitfalls.html">6.1 值/指针坑</a>
+      <a href="./02_interface_nil_pitfalls.html" class="active">6.2 interface nil 坑</a>
+      <a href="./03_error_handling_pitfalls.html">6.3 错误处理坑</a>
+      <a href="./04_concurrency_pitfalls.html">6.4 并发坑</a>
+    </div>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
+    <a href="../../unit_02_concurrency/lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点</a>
+      <span class="sep">/</span>
+      <span class="current">6.2 interface nil 坑</span>
+    </nav>
+
+    <h1>6.2 · 接口 nil 判断坑点</h1>
+
+    <div class="callout danger">
+      <span class="callout-title">⚠ Java 转 Go 踩坑率 Top 1</span>
+      这是 Java 转 Go 开发者<strong>踩坑率最高的 Top 1 问题</strong>。无数人在生产环境中因为这个问题导致<strong>错误被吞、服务异常</strong>。
+      理解它的<strong>底层 (type, value) 双指针</strong>原理是唯一根治办法。
+    </div>
+
+    <h2 id="principle">6.2.1 底层原理:interface 是 (type, value) 双指针</h2>
+
+    <p>一个接口变量<strong>等于 <code>nil</code>,当且仅当它的「类型指针」和「数据指针」都为 <code>nil</code></strong>:</p>
+
+    <pre class="language-go"><code>// 空接口底层结构
+type eface struct {
+    _type *type           // 类型指针
+    data  unsafe.Pointer  // 数据指针
+}</code></pre>
+
+    <p>下面这张图直接展示了 4 种状态——只有左上角一种是真正的 <code>nil</code>:</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 360" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrn" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa"/>
+          </marker>
+        </defs>
+
+        <!-- Title row -->
+        <text x="180" y="20" fill="#cdd6f4" text-anchor="middle" font-weight="700">type 指针</text>
+        <text x="540" y="20" fill="#cdd6f4" text-anchor="middle" font-weight="700">data 指针</text>
+
+        <!-- ===== Case 1: var i error → nil ===== -->
+        <text x="20" y="55" fill="#a6e3a1" font-weight="700">① var i error</text>
+        <text x="20" y="73" fill="#a6e3a1" font-size="11">i == nil  ✓</text>
+
+        <rect x="120" y="42" width="140" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1"/>
+        <text x="190" y="65" fill="#a6e3a1" text-anchor="middle">nil</text>
+
+        <rect x="470" y="42" width="140" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1"/>
+        <text x="540" y="65" fill="#a6e3a1" text-anchor="middle">nil</text>
+
+        <!-- ===== Case 2: i = (*MyErr)(nil) → 非 nil ★ 坑点 ===== -->
+        <text x="20" y="125" fill="#f38ba8" font-weight="700">② i = (*MyErr)(nil)</text>
+        <text x="20" y="143" fill="#f38ba8" font-size="11">i != nil  ✗ ★坑★</text>
+
+        <rect x="120" y="112" width="140" height="36" rx="4" fill="#313244" stroke="#f38ba8"/>
+        <text x="190" y="135" fill="#f38ba8" text-anchor="middle">*MyErr  ←非 nil!</text>
+
+        <rect x="470" y="112" width="140" height="36" rx="4" fill="#1e1e2e" stroke="#a6e3a1"/>
+        <text x="540" y="135" fill="#a6e3a1" text-anchor="middle">nil</text>
+
+        <!-- ===== Case 3: i = &MyErr{} → 非 nil 正常 ===== -->
+        <text x="20" y="195" fill="#cba6f7" font-weight="700">③ i = &amp;MyErr{...}</text>
+        <text x="20" y="213" fill="#cba6f7" font-size="11">i != nil  (正常)</text>
+
+        <rect x="120" y="182" width="140" height="36" rx="4" fill="#313244" stroke="#cba6f7"/>
+        <text x="190" y="205" fill="#cba6f7" text-anchor="middle">*MyErr</text>
+
+        <rect x="470" y="182" width="140" height="36" rx="4" fill="#313244" stroke="#cba6f7"/>
+        <text x="540" y="205" fill="#cba6f7" text-anchor="middle">0x..MyErr{...}</text>
+
+        <line x1="260" y1="200" x2="465" y2="200" stroke="#89b4fa" stroke-dasharray="4 3"/>
+
+        <!-- ===== Case 4: i = MyVal{} 值实现 → 非 nil ===== -->
+        <text x="20" y="265" fill="#cba6f7" font-weight="700">④ i = MyVal{...}</text>
+        <text x="20" y="283" fill="#cba6f7" font-size="11">i != nil  (正常)</text>
+
+        <rect x="120" y="252" width="140" height="36" rx="4" fill="#313244" stroke="#cba6f7"/>
+        <text x="190" y="275" fill="#cba6f7" text-anchor="middle">MyVal</text>
+
+        <rect x="470" y="252" width="140" height="36" rx="4" fill="#313244" stroke="#cba6f7"/>
+        <text x="540" y="275" fill="#cba6f7" text-anchor="middle">0x..MyVal{...}</text>
+
+        <!-- Rule box -->
+        <rect x="20" y="310" width="680" height="40" rx="6" fill="#181825" stroke="#fab387"/>
+        <text x="360" y="335" fill="#fab387" text-anchor="middle" font-weight="700">规则: interface == nil  ⇔  type 指针 == nil  AND  data 指针 == nil</text>
+      </svg>
+      <div class="diagram-caption">图 · interface 的 (type, value) 双指针:case ② 是经典「错误被吞」坑——type 非 nil 但 data nil,整体 != nil</div>
+    </div>
+
+    <h2 id="pit1">坑点 1:返回 nil 的具体类型指针给接口,导致错误判断失效</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 错误写法:返回 <code>nil</code> 的 <code>*CustomError</code> 给 <code>error</code> 接口</span>
+    </div>
+
+    <pre class="language-go"><code>type CustomError struct {
+    Code int
+    Msg  string
+}
+
+func (e *CustomError) Error() string {
+    return fmt.Sprintf("code: %d, msg: %s", e.Code, e.Msg)
+}
+
+func GetUser(id int64) error {
+    var err *CustomError
+    if id &lt;= 0 {
+        err = &amp;CustomError{Code: 400, Msg: "invalid id"}
+    }
+    // 当 id &gt; 0 时,err 的类型是 *CustomError(不是 nil),数据是 nil
+    // 所以返回的 error 接口不是 nil!
+    return err
+}
+
+func main() {
+    err := GetUser(1)
+    if err != nil { // 这里永远为 true!即使没有错误
+        log.Fatal("unexpected error: ", err) // 会输出: unexpected error: &lt;nil&gt;
+    }
+}</code></pre>
+
+    <div class="diagram">
+      <svg viewBox="0 0 720 280" xmlns="http://www.w3.org/2000/svg" font-family="ui-monospace, monospace" font-size="13">
+        <defs>
+          <marker id="arrn2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#f38ba8"/>
+          </marker>
+        </defs>
+
+        <!-- caller box -->
+        <rect x="20" y="30" width="220" height="220" rx="8" fill="#1e1e2e" stroke="#89b4fa" stroke-width="2"/>
+        <text x="130" y="54" fill="#89b4fa" text-anchor="middle" font-weight="700">调用方</text>
+        <text x="40" y="90" fill="#cdd6f4">err := GetUser(1)</text>
+        <text x="40" y="120" fill="#fab387">if err != nil {</text>
+        <text x="40" y="140" fill="#f38ba8">  // ⚠ 这里被错误命中</text>
+        <text x="40" y="160" fill="#f38ba8">  log.Fatal(...)</text>
+        <text x="40" y="180" fill="#cdd6f4">}</text>
+        <text x="40" y="225" fill="#a6adc8" font-size="11">err 是 error 接口</text>
+
+        <!-- iface internal box -->
+        <rect x="290" y="30" width="180" height="220" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2"/>
+        <text x="380" y="54" fill="#cba6f7" text-anchor="middle" font-weight="700">iface 内部</text>
+
+        <rect x="310" y="78" width="140" height="50" rx="4" fill="#313244" stroke="#f38ba8"/>
+        <text x="380" y="98" fill="#cdd6f4" text-anchor="middle" font-size="11">type 指针</text>
+        <text x="380" y="118" fill="#f38ba8" text-anchor="middle" font-weight="700">*CustomError</text>
+
+        <rect x="310" y="148" width="140" height="50" rx="4" fill="#313244" stroke="#a6e3a1"/>
+        <text x="380" y="168" fill="#cdd6f4" text-anchor="middle" font-size="11">data 指针</text>
+        <text x="380" y="188" fill="#a6e3a1" text-anchor="middle" font-weight="700">nil</text>
+
+        <text x="380" y="230" fill="#fab387" text-anchor="middle" font-size="11">⇒ iface != nil</text>
+
+        <!-- function inside -->
+        <rect x="510" y="30" width="190" height="220" rx="8" fill="#1e1e2e" stroke="#89b4fa" stroke-width="2"/>
+        <text x="605" y="54" fill="#89b4fa" text-anchor="middle" font-weight="700">GetUser(1) 内部</text>
+
+        <text x="525" y="90" fill="#cdd6f4">var err *CustomError</text>
+        <text x="525" y="110" fill="#a6adc8" font-size="11">类型 *CustomError</text>
+        <text x="525" y="128" fill="#a6adc8" font-size="11">值: nil</text>
+        <text x="525" y="170" fill="#cdd6f4">if id &lt;= 0 { ... }</text>
+        <text x="525" y="200" fill="#fab387">return err</text>
+        <text x="525" y="225" fill="#f38ba8" font-size="11">⚠ 把(*CustomError)(nil)</text>
+        <text x="525" y="240" fill="#f38ba8" font-size="11">  装入 error 接口</text>
+      </svg>
+      <div class="diagram-caption">图 · 「错误被吞」根因:return err 把一个有类型的 nil 指针装进 error 接口,接口 != nil</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">✅ 正确写法:永远直接返回 <code>nil</code>,不要返回 nil 的具体类型指针</span>
+    </div>
+
+    <pre class="language-go"><code>func GetUser(id int64) error {
+    if id &lt;= 0 {
+        return &amp;CustomError{Code: 400, Msg: "invalid id"}
+    }
+    // 直接返回 nil,类型和数据都是 nil
+    return nil
+}</code></pre>
+
+    <h2 id="pit2">坑点 2:把 nil 的接口断言为具体类型,导致 panic</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 错误写法</span>
+    </div>
+
+    <pre class="language-go"><code>var i any = nil
+var s string = i.(string)
+// panic: interface conversion: interface {} is nil, not string</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">✅ 正确写法:使用 comma-ok 断言</span>
+    </div>
+
+    <pre class="language-go"><code>s, ok := i.(string)
+if !ok {
+    // 处理类型不匹配的情况
+}</code></pre>
+
+    <h2 id="pit3">坑点 3:<code>interface{}</code> 和具体类型的 <code>==</code> 判断问题</h2>
+
+    <pre class="language-go"><code>var a int   = 0
+var b int64 = 0
+var ia any = a
+var ib any = b
+
+fmt.Println(ia == ib) // false!因为类型不同</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">原理</span>
+      接口的 <code>==</code> 比较是 <strong>(type, value) 两元组</strong>都相等才相等。
+      <code>int</code> 和 <code>int64</code> 是<strong>不同的类型</strong>,即使 value 都是 0,接口也不相等。
+    </div>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  A["ia = any(int 0)<br/>type=int, value=0"]:::ok
+  B["ib = any(int64 0)<br/>type=int64, value=0"]:::ok
+  A -. == .-> R{"type 相同?"}:::sec
+  B -. == .-> R
+  R -- 否 --> F["false<br/>(类型不同就直接 false)"]:::bad
+  R -- 是 --> V{"value 相同?"}:::sec
+  V -- 是 --> T["true"]:::ok
+  V -- 否 --> F
+
+  classDef ok  fill:#a6e3a1,color:#11111b;
+  classDef bad fill:#f38ba8,color:#11111b;
+  classDef sec fill:#89b4fa,color:#11111b;
+      </div>
+      <div class="diagram-caption">图 · 接口 <code>==</code> 比较的两步判定:先 type、再 value</div>
+    </div>
+
+    <h2 id="defense">6.2.2 防御性编程最佳实践</h2>
+
+    <ol>
+      <li><strong>函数签名声明返回 <code>error</code> 时</strong>,函数内部要么直接 <code>return nil</code>,要么 <code>return &amp;ConcreteErr{...}</code>,<strong>千万不要</strong>声明 <code>var e *ConcreteErr</code> 然后 <code>return e</code>。</li>
+      <li>类型断言一律用 <strong>comma-ok</strong>,绝不裸用 <code>v := i.(T)</code>。</li>
+      <li>跨类型相等比较前,先用 <code>reflect.TypeOf</code> 或显式转换统一类型。</li>
+    </ol>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>修复 <code>GetUser</code> 函数的错误,让它能正确返回 <code>nil</code> error。</li>
+      <li>编写代码验证:只有当接口的<strong>类型和数据都为 <code>nil</code></strong>时,接口才等于 <code>nil</code>。</li>
+      <li>解释为什么 <code>fmt.Println(err)</code> 会输出 <code>&lt;nil&gt;</code>,但 <code>err != nil</code> 却为 <code>true</code>。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_value_pointer_pitfalls.html">
+        <div class="label">← 上一页</div>
+        <div class="title">6.1 · 值/指针坑</div>
+      </a>
+      <a class="next" href="./03_error_handling_pitfalls.html">
+        <div class="label">下一页 →</div>
+        <div class="title">6.3 · 错误处理坑</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>
