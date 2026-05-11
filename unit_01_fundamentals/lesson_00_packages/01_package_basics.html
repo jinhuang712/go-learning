@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>0.1 Package 基础 · Lesson 0 Packages · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html" class="active">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../../unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../../unit_02_concurrency/lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../../unit_02_concurrency/lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_00_packages.html">L0 · Packages</a>
+      <span class="sep">/</span>
+      <span class="current">0.1 Package 基础</span>
+    </nav>
+
+    <h1>0.1 Go Package 基础</h1>
+
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      Java 中包名是<strong>反向域名</strong>(如 <code>com.example.utils</code>),且必须与文件系统目录结构<strong>一一对应</strong>。包是逻辑的、由 <code>package</code> 声明决定;目录是物理的、由编译器/JVM 强制对齐。
+    </div>
+
+    <h2 id="what-is-package">5.1 什么是 Go Package</h2>
+    <p>Package 是 Go 代码的<strong>基本组织单元</strong>,用于将相关的 Go 源代码组织在一起,并通过它来界定可见性、依赖与命名空间。</p>
+
+    <div class="callout note">
+      <span class="callout-title">3 条核心规则</span>
+      <ul style="margin: 6px 0 0 18px;">
+        <li>一个目录下的所有 <code>.go</code> 文件必须声明属于<strong>同一个 package</strong></li>
+        <li>package 名通常是<strong>目录名的最后一段</strong>(但不要求强制相同)</li>
+        <li>同一个 package 下的文件可以互相访问<strong>未导出</strong>(小写开头)的标识符</li>
+      </ul>
+    </div>
+
+    <h2 id="declaration"><code>package</code> 声明</h2>
+    <p>每个 <code>.go</code> 文件的第一行必须是 <code>package</code> 声明:</p>
+
+    <pre class="language-go"><code>package mypackage</code></pre>
+
+    <h2 id="dir-vs-pkg">目录结构与 Package 的关系</h2>
+    <p>Go 使用<strong>文件系统目录</strong>来组织 package,而不是像 Java 那样在文件中声明完整的包路径。</p>
+
+    <pre class="language-text"><code>example.com/
+├── go.mod
+├── main.go
+└── utils/
+    ├── string.go  // package utils
+    └── math.go    // package utils</code></pre>
+
+    <h2 id="java-mapping">📚 Java 与 Go 概念对照</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  subgraph J["Java 世界"]
+    direction TB
+    J1["com.example<br/>(顶层包)"]:::java --> J2["com.example.utils<br/>(子包)"]:::java
+    J2 --> J3["StringUtils.java<br/>package com.example.utils;<br/>class StringUtils {}"]:::javaFile
+    J2 --> J4["MathUtils.java<br/>package com.example.utils;<br/>class MathUtils {}"]:::javaFile
+  end
+
+  subgraph G["Go 世界"]
+    direction TB
+    G1["example.com<br/>(module 路径)"]:::go --> G2["utils/<br/>(目录 = package)"]:::go
+    G2 --> G3["string.go<br/>package utils<br/>func Reverse() {}"]:::goFile
+    G2 --> G4["math.go<br/>package utils<br/>func Sum() {}"]:::goFile
+  end
+
+  J -.对照.-> G
+
+  classDef java fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef javaFile fill:#f9e2af,color:#11111b,stroke:#f9e2af;
+  classDef go fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef goFile fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+      </div>
+      <div class="diagram-caption">图 · Java 包(反向域名 + 多类) vs Go 包(目录 + 多 .go 文件)</div>
+    </div>
+
+    <h3>对照表</h3>
+    <table>
+      <thead><tr><th>特性</th><th>Java Package</th><th>Go Package</th></tr></thead>
+      <tbody>
+        <tr><td><strong>声明方式</strong></td><td><code>package com.example.utils;</code></td><td><code>package utils</code></td></tr>
+        <tr><td><strong>目录与包关系</strong></td><td>目录结构必须与包名一致</td><td>目录决定 import 路径,package 名独立</td></tr>
+        <tr><td><strong>包名规范</strong></td><td>反向域名(com.example)</td><td>小写、简洁、不含下划线</td></tr>
+        <tr><td><strong>文件组织</strong></td><td>一个文件可以声明任意包</td><td>一个目录下所有文件必须同属一个包</td></tr>
+      </tbody>
+    </table>
+
+    <h3>代码对照</h3>
+
+    <div class="callout java">
+      <span class="callout-title">Java</span>
+      <pre class="language-java"><code>// 文件位置: com/example/utils/StringUtils.java
+package com.example.utils;
+
+public class StringUtils {
+    public static String reverse(String s) {
+        // ...
+    }
+}</code></pre>
+    </div>
+
+    <pre class="language-go"><code>// 文件位置: utils/string.go
+package utils
+
+func Reverse(s string) string {
+    // ...
+}</code></pre>
+
+    <h2 id="example">💻 可运行代码示例</h2>
+    <p>下面演示一个最基本的 Package 组织。<code>greeting/</code> 目录下两个文件同属于 <code>greeting</code> 包,可以互相访问私有标识符。</p>
+
+    <pre class="language-go"><code>// 目录结构:
+// demo/
+// ├── go.mod
+// ├── main.go
+// └── greeting/
+//     ├── hello.go
+//     └── hi.go
+
+// greeting/hello.go
+package greeting
+
+import "fmt"
+
+func Hello() {
+    fmt.Println("Hello!")
+}
+
+// greeting/hi.go
+package greeting  // 同一个目录,必须是同一个 package
+
+import "fmt"
+
+func Hi() {
+    fmt.Println("Hi!")
+}
+
+// main.go
+package main
+
+import (
+    "demo/greeting"
+)
+
+func main() {
+    greeting.Hello()
+    greeting.Hi()
+}</code></pre>
+
+    <h2 id="pitfalls">⚠️ 生产环境坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1 · 同一个目录下不同的 package 声明</span>
+      <pre class="language-go"><code>// 错误写法 - 同一个目录下不能有不同的 package
+// file1.go
+package utils
+
+// file2.go (同一个目录)
+package helpers // 编译错误!
+
+// 正确写法 - 必须同一个 package
+// file2.go
+package utils</code></pre>
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 2 · 循环 import</span>
+      Go <strong>不允许循环导入</strong> (与 Java 不同)。如果 a.go 导入 b,b.go 又导入 a,直接编译失败。
+      <br/><strong>解决方法</strong>: 重构代码,提取公共部分到第三个 package。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3 · package 名和目录名不一致</span>
+      <pre class="language-go"><code>// 虽然允许,但不推荐
+// 目录: stringutils/
+// 文件: stringutils/str.go
+package str // package 名与目录名不一致
+
+// 推荐做法
+package stringutils // package 名与目录名一致</code></pre>
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+
+    <h3>练习 1.1 · 创建一个简单的 Package</h3>
+    <p><strong>目标</strong>: 创建一个 <code>mathutil</code> package,包含 <code>Add</code> 和 <code>Multiply</code> 两个函数,在 main 中调用它们。</p>
+    <p><strong>验收标准</strong>:</p>
+    <ul>
+      <li>正确的目录结构</li>
+      <li>package 声明正确</li>
+      <li>能正常编译和运行</li>
+    </ul>
+
+    <h3>练习 1.2 · 理解目录与 Package 的关系(概念题)</h3>
+    <ol>
+      <li>Go 中一个目录下可以有多个不同的 package 吗?为什么?</li>
+      <li>Java 和 Go 在 package 组织方式上有什么本质区别?</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_00_packages.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L0 总览</div>
+      </a>
+      <a class="next" href="./02_import_mechanism.html">
+        <div class="label">下一页 →</div>
+        <div class="title">0.2 · Import 机制</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

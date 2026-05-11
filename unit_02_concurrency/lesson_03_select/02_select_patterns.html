@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3.2 select 模式 · Lesson 3 · Select · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html" class="active">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_03_select.html">L3 · Select</a>
+      <span class="sep">/</span>
+      <span class="current">3.2 select 模式</span>
+    </nav>
+
+    <h1>3.2 select 常用模式</h1>
+
+    <p><code>select</code> 单独看只是语法,真正变现是配合 <code>time.After</code>、<code>default</code>、<code>done channel</code>、多个数据 channel 后产生的<strong>工业级模式</strong>。这一节挑出最高频的 4 个:超时、非阻塞、多路 fan-in、退出信号。</p>
+
+    <h2 id="overview">1. 三大模式速览</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TD
+    Start([select 模式入口]):::start
+
+    Start --> P1{需要限时<br/>等待结果?}
+    P1 -- 是 --> M1[模式 1<br/>超时控制<br/>time.After / NewTimer]:::pattern
+    P1 -- 否 --> P2
+
+    P2{所有 case 阻塞时<br/>立即返回?}
+    P2 -- 是 --> M2[模式 2<br/>非阻塞读写<br/>case + default]:::pattern
+    P2 -- 否 --> P3
+
+    P3{合并多个<br/>数据源?}
+    P3 -- 是 --> M3[模式 3<br/>多路 fan-in<br/>多 case 监听]:::pattern
+    P3 -- 否 --> M4[模式 4<br/>退出信号<br/>done / context.Done]:::pattern
+
+    M1 --> Done([业务逻辑])
+    M2 --> Done
+    M3 --> Done
+    M4 --> Done
+
+    classDef start fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+    classDef pattern fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+      </div>
+      <div class="diagram-caption">图 · select 模式决策树: 按业务诉求挑模式, 模式之间可以组合(例如「带超时的多路 fan-in」就是模式 1 + 3 叠加)。</div>
+    </div>
+
+    <h2 id="java-compare">2. Java 与 Go 模式对照表</h2>
+
+    <table>
+      <thead><tr><th>模式</th><th>Java</th><th>Go</th></tr></thead>
+      <tbody>
+        <tr><td><strong>超时控制</strong></td><td><code>CompletableFuture.orTimeout()</code> / <code>Future.get(timeout)</code></td><td><code>select</code> + <code>time.After</code></td></tr>
+        <tr><td><strong>非阻塞操作</strong></td><td><code>BlockingQueue.poll()</code> / <code>offer()</code></td><td><code>select</code> + <code>default</code></td></tr>
+        <tr><td><strong>多路等待</strong></td><td><code>CompletableFuture.anyOf()</code></td><td><code>select</code> 多个 case</td></tr>
+        <tr><td><strong>退出信号</strong></td><td><code>Thread.interrupt()</code> / <code>AtomicBoolean</code></td><td>关闭 <code>done</code> channel</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Java 超时对照</h3>
+
+    <pre class="language-java"><code>import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+
+public class TimeoutExample {
+    public static void main(String[] args) {
+        CompletableFuture&lt;String&gt; future = CompletableFuture.supplyAsync(() -&gt; {
+            try {
+                Thread.sleep(2000);
+                return "任务完成";
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return "任务中断";
+            }
+        });
+
+        try {
+            String result = future.orTimeout(1, TimeUnit.SECONDS).get();
+            System.out.println("收到结果: " + result);
+        } catch (Exception e) {
+            System.out.println("超时或异常: " + e.getMessage());
+        }
+    }
+}</code></pre>
+
+    <h3>Go 超时对照</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch := make(chan string, 1)
+
+    go func() {
+        time.Sleep(2 * time.Second)
+        ch &lt;- "任务完成"
+    }()
+
+    select {
+    case result := &lt;-ch:
+        fmt.Println("收到结果:", result)
+    case &lt;-time.After(1 * time.Second):
+        fmt.Println("超时")
+    }
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">心智迁移要点</span>
+      <ul style="margin:8px 0 0 0">
+        <li>Java 用 <code>CompletableFuture</code> 链式编程,功能强大但抽象层重;Go 把多路复用降到语法层,简单到爆。</li>
+        <li>Java 超时通常以<strong>异常</strong>呈现,Go 超时是一条正常的 case 分支——属于<strong>正常控制流</strong>。</li>
+        <li>Java <code>anyOf</code> / <code>allOf</code> 是返回新 Future 的高阶组合;Go 的 select 是「就地」组合,代码更线性。</li>
+      </ul>
+    </div>
+
+    <h2 id="pattern-1">3. 模式 1: 超时控制 (time.After)</h2>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    resultCh := make(chan string, 1)
+
+    // 模拟一个慢查询
+    go func() {
+        time.Sleep(2 * time.Second)
+        resultCh &lt;- "查询结果: 用户数据"
+    }()
+
+    // 等待结果, 但最多等 1 秒
+    select {
+    case result := &lt;-resultCh:
+        fmt.Println("成功:", result)
+    case &lt;-time.After(1 * time.Second):
+        fmt.Println("错误: 查询超时")
+    }
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">resultCh 一定要有缓冲</span>
+      上面的 <code>make(chan string, 1)</code> 容量必须 ≥ 1。如果超时分支被选中,主 G 不会再来接收,生产者发送会永远阻塞 — 这就是经典的<strong>「Goroutine 泄露」</strong>。
+      容量 1 让生产者把数据塞进 buffer 后立刻返回,即使没人接收。
+    </div>
+
+    <h2 id="pattern-2">4. 模式 2: 非阻塞读写 (default)</h2>
+
+    <pre class="language-go"><code>package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int, 1)
+
+    // 非阻塞发送
+    select {
+    case ch &lt;- 42:
+        fmt.Println("发送成功")
+    default:
+        fmt.Println("发送失败 (缓冲区满)")
+    }
+
+    // 非阻塞接收
+    select {
+    case val := &lt;-ch:
+        fmt.Println("接收成功:", val)
+    default:
+        fmt.Println("接收失败 (没有数据)")
+    }
+
+    // 再次非阻塞接收 (这次没数据了)
+    select {
+    case val := &lt;-ch:
+        fmt.Println("接收成功:", val)
+    default:
+        fmt.Println("接收失败 (没有数据)")
+    }
+}</code></pre>
+
+    <h2 id="pattern-3">5. 模式 3: 多路等待 / Fan-in</h2>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+    stop := make(chan struct{})
+
+    go func() {
+        time.Sleep(100 * time.Millisecond)
+        ch1 &lt;- "来自服务 A"
+    }()
+
+    go func() {
+        time.Sleep(200 * time.Millisecond)
+        ch2 &lt;- "来自服务 B"
+    }()
+
+    go func() {
+        time.Sleep(500 * time.Millisecond)
+        close(stop)
+    }()
+
+    for {
+        select {
+        case msg := &lt;-ch1:
+            fmt.Println("收到:", msg)
+        case msg := &lt;-ch2:
+            fmt.Println("收到:", msg)
+        case &lt;-stop:
+            fmt.Println("收到停止信号, 退出")
+            return
+        }
+    }
+}</code></pre>
+
+    <h2 id="pattern-4">6. 模式 4: 退出信号 (done channel)</h2>
+
+    <p><code>close(done)</code> 是 Go 里最优雅的「广播退出」手段——一次 close,所有监听 <code>&lt;-done</code> 的 G 同时收到零值,无需逐个通知。它和 <code>context.Done()</code> 在底层用的是同一招。</p>
+
+    <pre class="language-go"><code>func worker(id int, jobs &lt;-chan int, done &lt;-chan struct{}) {
+    for {
+        select {
+        case j, ok := &lt;-jobs:
+            if !ok {
+                return // jobs 关闭, 自然退出
+            }
+            fmt.Printf("worker %d 处理 job %d\n", id, j)
+        case &lt;-done:
+            fmt.Printf("worker %d 收到退出信号\n", id)
+            return
+        }
+    }
+}</code></pre>
+
+    <h2 id="pitfalls">7. 生产环境坑点</h2>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 1: 循环中 time.After 内存泄露</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>// 错误: 每次循环创建新 Timer, 旧 Timer 直到触发才被 GC
+for {
+    select {
+    case &lt;-dataCh:
+        // 处理数据
+    case &lt;-time.After(5 * time.Second):
+        // 超时
+    }
+}
+
+// 正确: 复用 Timer
+timer := time.NewTimer(5 * time.Second)
+defer timer.Stop()
+
+for {
+    select {
+    case &lt;-dataCh:
+        // 处理数据
+        if !timer.Stop() {
+            &lt;-timer.C // 排掉残余信号
+        }
+        timer.Reset(5 * time.Second)
+    case &lt;-timer.C:
+        // 超时
+        return
+    }
+}</code></pre>
+      <code>time.After(d)</code> 会创建一个 <code>*time.Timer</code>,只有触发了才会被 GC 回收。在长时间循环里高频调用,内存会被「等待中的 Timer」吃光。
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 2: 非阻塞 select 写成忙等</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>// 不推荐: CPU 100% 忙等
+for {
+    select {
+    case &lt;-ch:
+        // 处理数据
+    default:
+        // 没有数据, 继续循环
+    }
+}
+
+// 推荐: 用阻塞 select 或加短暂 sleep
+for {
+    select {
+    case &lt;-ch:
+        // 处理数据
+    default:
+        time.Sleep(10 * time.Millisecond)
+    }
+}</code></pre>
+      非阻塞 select 在循环里跑等同于 <code>while(true)</code>,会把一个核完全打满。如果业务允许,优先使用阻塞 select。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3: 超时精度</span>
+      <code>time.After(5 * time.Second)</code> 不保证精确 5 秒触发——受调度延迟、GC、系统时钟分辨率影响,实际可能在 5.001s ~ 5.1s 之间。对精度敏感的场景请用 <code>time.NewTicker</code> 并自己累加,而不是依赖 After 的「相对秒数」。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li><strong>实现多路超时控制</strong>:写一个函数同时请求 3 个服务,等待所有结果,但整体最多等待 3 秒。要求:某个服务超时/失败不影响其它服务的结果;无 Goroutine 泄露;无 Timer 泄露。</li>
+      <li><strong>理解非阻塞操作 (概念题)</strong>:什么时候应该使用非阻塞 channel 操作?什么时候应该阻塞?<code>time.After</code> 在循环中为什么会泄露?如何修复?</li>
+      <li><strong>动手测</strong>:写一个 demo 用 <code>runtime.NumGoroutine()</code> 在 <code>for + time.After</code> 死循环里观察泄露,然后改写成 <code>NewTimer + Reset</code> 验证内存释放。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_select_basics.html">
+        <div class="label">← 上一页</div>
+        <div class="title">3.1 select 基础</div>
+      </a>
+      <a class="next" href="./03_select_pitfalls.html">
+        <div class="label">下一页 →</div>
+        <div class="title">3.3 select 坑点</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

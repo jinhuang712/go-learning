@@ -12,8 +12,16 @@
   <aside class="sidebar">
     <a href="../../README.html" class="home-link">⬢ Go Learning</a>
     <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
 
     <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
     <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
     <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
     <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
@@ -22,15 +30,15 @@
     <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
 
     <h2>Unit 2 · 并发与并行</h2>
-    <a href="../lesson_01_goroutine_csp/lesson_01_goroutine_csp.html">L1 · Goroutine & CSP</a>
-    <a href="../lesson_02_channel_patterns/lesson_02_channel_patterns.html">L2 · Channel 模式</a>
-    <a href="../lesson_03_select_timeout/lesson_03_select_timeout.html">L3 · Select / Timeout</a>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
     <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
-    <a href="./lesson_05_sync_atomic.html" class="active">L5 · Sync / Atomic</a>
-    <div class="lesson-group">
-      <a href="./01_mutex.html">5.1 Mutex / RWMutex</a>
-    </div>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html" class="active">L5 · Sync / Atomic</a>
     <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
   </aside>
 
   <main>
@@ -44,77 +52,86 @@
 
     <h1>Lesson 5 · Sync 包与 Atomic 原子操作</h1>
 
-    <p>Go 推崇「Don't communicate by sharing memory; share memory by communicating」——但这<strong>不代表共享内存不能用</strong>。
-    当数据结构简单(单个计数器、状态标志、单例),用锁或原子操作往往比 channel 更直接、更快。本课系统梳理 <code>sync</code> 包和 <code>sync/atomic</code> 的核心原语。</p>
+    <p>到目前为止我们都在用 channel 实现 CSP 风格的并发——「不要通过共享内存来通信,而要通过通信来共享内存」。但实际工程中,有些场景<strong>共享内存的写法更简单 / 更快</strong>:计数器、缓存、配置热更新、单例、协调多个 worker 完成……这一课讲透 <code>sync</code> 包和 <code>sync/atomic</code> 包。</p>
 
     <div class="callout java">
-      <span class="callout-title">Java 对照速查</span>
-      <table>
-        <thead><tr><th>Go</th><th>Java</th><th>用途</th></tr></thead>
-        <tbody>
-          <tr><td><code>sync.Mutex</code></td><td><code>synchronized</code> / <code>ReentrantLock</code></td><td>互斥访问临界区</td></tr>
-          <tr><td><code>sync.RWMutex</code></td><td><code>ReentrantReadWriteLock</code></td><td>读多写少的共享状态</td></tr>
-          <tr><td><code>sync.WaitGroup</code></td><td><code>CountDownLatch</code></td><td>等待一组任务完成</td></tr>
-          <tr><td><code>sync.Once</code></td><td>DCL / <code>Holder</code> 单例</td><td>保证 init 函数只执行一次</td></tr>
-          <tr><td><code>sync.Map</code></td><td><code>ConcurrentHashMap</code></td><td>读多写少的并发 map</td></tr>
-          <tr><td><code>sync.Cond</code></td><td><code>Object.wait/notify</code> / <code>Condition</code></td><td>条件变量</td></tr>
-          <tr><td><code>atomic.*</code></td><td><code>AtomicInteger</code> / <code>VarHandle</code></td><td>单变量原子操作</td></tr>
-        </tbody>
-      </table>
+      <span class="callout-title">Java 对照视角</span>
+      Java 的并发工具箱:<code>synchronized</code> + <code>ReentrantLock</code> + <code>ReadWriteLock</code> + <code>CountDownLatch</code> + <code>CyclicBarrier</code> + <code>Condition</code> + <code>ConcurrentHashMap</code> + <code>AtomicXxx</code>。<br/>
+      Go 的对应物:<code>sync.Mutex</code> + <code>sync.RWMutex</code> + <code>sync.WaitGroup</code> + <code>sync.Once</code> + <code>sync.Cond</code> + <code>sync.Map</code> + <code>sync/atomic</code>。<br/>
+      <strong>语义高度一致,但 Go 的 API 更精简,且不支持「可重入」</strong>。
+    </div>
+
+    <div class="callout note">
+      <span class="callout-title">学习地图</span>
+      本课程围绕三个 Section 展开:先从最常用的 Mutex / RWMutex 入手,理解临界区与读写锁的权衡;然后扫一遍 WaitGroup / Once / Cond / Map 这些「场景化原语」;最后是性能至上的 atomic 包与 CAS 操作。
     </div>
 
     <div class="diagram">
       <div class="mermaid">
 flowchart LR
-  S1[5.1<br/>Mutex / RWMutex]:::sec --> S2[(后续)<br/>WaitGroup / Once / Atomic]:::future
+  S1[5.1<br/>Mutex / RWMutex<br/>临界区 + 读写锁]:::sec --> S2[5.2<br/>WaitGroup / Once<br/>Cond / sync.Map]:::sec
+  S2 --> S3[5.3<br/>atomic 原子操作<br/>CAS · Lock-Free]:::sec
 
   classDef sec fill:#89b4fa,color:#11111b,stroke:#89b4fa;
-  classDef future fill:#45475a,color:#cdd6f4,stroke:#6c7086,stroke-dasharray: 5 3;
       </div>
-      <div class="diagram-caption">图 · Lesson 5 当前覆盖的 Section</div>
+      <div class="diagram-caption">图 · Lesson 5 三个 Section 的递进顺序</div>
     </div>
 
     <h2 id="sections">📑 课程目录</h2>
 
     <div class="card-grid">
-      <a class="card" href="./01_mutex.html">
-        <div class="card-title">5.1 · Mutex / RWMutex 互斥锁与读写锁</div>
+      <a class="card" href="./01_sync_mutex.html">
+        <div class="card-title">5.1 · Mutex & RWMutex</div>
         <div class="card-desc">
-          锁状态机 · 临界区保护 · 读写共存的时序 · 与 Java <code>ReentrantLock</code> 的对比
+          互斥锁、读写锁、Mutex 状态机、不可重入坑点 · 与 Java <code>ReentrantLock</code> 对比
           <span class="badge badge-java">JAVA</span>
+        </div>
+      </a>
+      <a class="card" href="./02_sync_other.html">
+        <div class="card-title">5.2 · WaitGroup / Once / Cond / Map</div>
+        <div class="card-desc">
+          四大场景化原语 · 与 <code>CountDownLatch</code> / 双重检查锁 / <code>Condition</code> / <code>ConcurrentHashMap</code> 对照
+          <span class="badge badge-go">GO 工具箱</span>
+        </div>
+      </a>
+      <a class="card" href="./03_atomic.html">
+        <div class="card-title">5.3 · Atomic 原子操作</div>
+        <div class="card-desc">
+          CAS 循环、Lock-Free、<code>atomic.Value</code> · 与 Java <code>AtomicInteger</code> 对比
+          <span class="badge badge-pitfall">PERFORMANCE</span>
         </div>
       </a>
     </div>
 
+    <h2 id="overview">🧭 整体心智模型:何时用谁?</h2>
+
+    <table>
+      <thead><tr><th>场景</th><th>推荐</th><th>原因</th></tr></thead>
+      <tbody>
+        <tr><td>简单计数器、状态位</td><td><code>atomic</code></td><td>最快,无锁</td></tr>
+        <tr><td>保护一段临界区(多操作)</td><td><code>sync.Mutex</code></td><td>语义清晰,自带 happens-before</td></tr>
+        <tr><td>读多写少的缓存 / 配置</td><td><code>sync.RWMutex</code></td><td>多读并行</td></tr>
+        <tr><td>等多个 worker 全部完成</td><td><code>sync.WaitGroup</code></td><td>API 简洁</td></tr>
+        <tr><td>一次性初始化(单例)</td><td><code>sync.Once</code></td><td>取代双检锁</td></tr>
+        <tr><td>条件等待 / 通知</td><td><code>sync.Cond</code></td><td>典型生产者-消费者</td></tr>
+        <tr><td>键写一次后只读 / 元素互斥</td><td><code>sync.Map</code></td><td>无 lock 锁竞争</td></tr>
+        <tr><td>跨 Goroutine 数据流</td><td><code>channel</code></td><td>CSP 风格,语义清楚</td></tr>
+      </tbody>
+    </table>
+
     <h2 id="run">🚀 运行方式</h2>
-    <p>在 <code>main.go</code> 中调用 <code>lesson_05_sync_atomic.Run()</code> 即可执行本 Lesson 演示代码:</p>
     <pre class="language-bash"><code>go run .
-go test ./unit_02_concurrency/lesson_05_sync_atomic
-go test -race ./unit_02_concurrency/lesson_05_sync_atomic   # 顺便验证无 race</code></pre>
-
-    <h2 id="key-points">🎯 本课核心收获</h2>
-    <ul>
-      <li>掌握 <strong>Mutex 状态机</strong>:unlocked → locked → woken/starvation,了解 Go 1.9+ 的<strong>饥饿模式</strong>。</li>
-      <li>理解 <code>RWMutex</code> 多读单写的语义:<strong>读读并行、写写互斥、读写互斥</strong>。</li>
-      <li>清楚什么时候用<strong>锁</strong>,什么时候用 <strong>channel</strong>,什么时候用 <strong>atomic</strong>——三者并非替代关系。</li>
-      <li>会用 <code>go test -race</code> 自我验证,而不是肉眼盯代码。</li>
-    </ul>
-
-    <div class="callout warn">
-      <span class="callout-title">使用顺序建议</span>
-      Go 团队推荐:能用 channel 解决的优先用 channel(语义清晰);
-      channel 太重的简单计数 → 用 <code>atomic</code>(无锁,最快);
-      数据结构复杂或需要保护多个字段 → 用 <code>Mutex</code> / <code>RWMutex</code>。
-    </div>
+go test ./unit_02_concurrency/lesson_05_sync_atomic/...
+go test -race ./unit_02_concurrency/lesson_05_sync_atomic/...</code></pre>
 
     <div class="page-nav">
-      <a class="prev" href="../lesson_04_context/02_context_tree.html">
-        <div class="label">← 上一页</div>
-        <div class="title">4.2 · Context 树</div>
+      <a class="prev" href="../lesson_04_context/03_context_propagation.html">
+        <div class="label">← 上一节</div>
+        <div class="title">4.3 · Context 传播</div>
       </a>
-      <a class="next" href="./01_mutex.html">
+      <a class="next" href="./01_sync_mutex.html">
         <div class="label">开始 →</div>
-        <div class="title">5.1 · Mutex / RWMutex</div>
+        <div class="title">5.1 · sync.Mutex</div>
       </a>
     </div>
   </main>

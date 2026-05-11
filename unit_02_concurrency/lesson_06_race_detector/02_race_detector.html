@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>6.2 Race Detector 用法 · Lesson 6 · Race Detector · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html" class="active">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_06_race_detector.html">L6 · Race Detector</a>
+      <span class="sep">/</span>
+      <span class="current">6.2 Race Detector 用法</span>
+    </nav>
+
+    <h1>6.2 Race Detector 用法 · -race 标志</h1>
+
+    <p>Go 工具链内置了一个工业级的数据竞争检测器,基于 Google 的 ThreadSanitizer (TSan) 算法。只需要在 <code>go run / build / test</code> 上加 <code>-race</code> 标志,编译器会在每条内存访问指令上自动插入运行时探针,运行时追踪 happens-before 关系,发现 race 立刻打印告警。</p>
+
+    <h2 id="usage">1. 三种用法</h2>
+
+    <pre class="language-bash"><code># 运行单文件
+go run -race main.go
+
+# 跑测试(强烈推荐 CI 里常开)
+go test -race ./...
+
+# 编译带 race 的二进制(只在开发 / 灰度自检)
+go build -race -o app
+
+# vet 静态检测 + race 运行时检测 一起跑
+go test -race -v -count=1 ./...</code></pre>
+
+    <h2 id="principle">2. 原理 · -race 是如何工作的</h2>
+
+    <p>Race detector 不是简单的「监控锁」,而是<strong>记录每次内存访问的 happens-before 向量时钟</strong>,看新访问是否与历史访问形成偏序。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  subgraph CT["编译期 · -race 插桩"]
+    A["源码: x = 1"] --> B["插入 __tsan_write 探针"]
+    A2["源码: y := x"] --> B2["插入 __tsan_read 探针"]
+  end
+
+  subgraph RT["运行时 · ThreadSanitizer 引擎"]
+    C["每个 G 维护<br/>vector clock"]
+    D["同步事件触发 clock 推进<br/>(锁/chan/atomic/Wait)"]
+    E["每次读写记录<br/>address → goroutine, clock"]
+    F{"新访问 vs<br/>历史访问?"}
+    G["有 happens-before<br/>(同 G / 锁配对 / chan 配对)"]
+    H["无 happens-before<br/>且至少一个写"]
+    OK([安全 · 不报告])
+    BAD([🚨 DATA RACE<br/>打印两端栈帧])
+  end
+
+  B --> C
+  B2 --> C
+  C --> E
+  D --> C
+  E --> F
+  F -->|是| G --> OK
+  F -->|否| H --> BAD
+
+  classDef good fill:#1e1e2e,stroke:#a6e3a1,color:#cdd6f4;
+  classDef bad fill:#1e1e2e,stroke:#f38ba8,color:#cdd6f4;
+  classDef neutral fill:#1e1e2e,stroke:#89b4fa,color:#cdd6f4;
+  classDef hot fill:#1e1e2e,stroke:#cba6f7,color:#cdd6f4;
+  class OK good;
+  class BAD bad;
+  class A,A2,B,B2 hot;
+  class C,D,E,F,G,H neutral;
+      </div>
+      <div class="diagram-caption">图 · -race 编译期插桩 + 运行时向量时钟追踪 happens-before</div>
+    </div>
+
+    <div class="callout note">
+      <span class="callout-title">关键概念:Happens-Before 通过什么建立?</span>
+      Go Memory Model 明确列出建立 happens-before 的方式:
+      <ul style="margin: 8px 0 0 0">
+        <li><strong>同一 G 内</strong>:程序顺序 (program order)</li>
+        <li><strong>锁配对</strong>:<code>Unlock()</code> happens-before 下一次 <code>Lock()</code></li>
+        <li><strong>channel</strong>:发送 happens-before 对应的接收完成</li>
+        <li><strong>sync.Once</strong>:<code>Do</code> 内函数 happens-before 所有后续 <code>Do</code> 返回</li>
+        <li><strong>WaitGroup</strong>:所有 <code>Done()</code> happens-before <code>Wait()</code> 返回</li>
+        <li><strong>atomic 操作</strong>(顺序一致):<code>Store</code> happens-before 后续相同地址的 <code>Load</code></li>
+        <li><strong>go 语句</strong>:启动一个 G 前的所有操作 happens-before 这个 G 的开始</li>
+      </ul>
+    </div>
+
+    <h2 id="output">3. 如何解读输出</h2>
+
+    <pre class="language-bash"><code>==================
+WARNING: DATA RACE
+Write at 0x00c0000ae008 by goroutine 7:                  ← 当前访问(写)
+  main.main.func1()
+      /path/main.go:15 +0x3a                              ← 出错的代码行
+
+Previous write at 0x00c0000ae008 by goroutine 6:         ← 与之冲突的历史访问
+  main.main.func1()
+      /path/main.go:15 +0x3a
+
+Goroutine 7 (running) created at:                        ← G 是从哪里启动的
+  main.main()
+      /path/main.go:13 +0x9d
+
+Goroutine 6 (finished) created at:
+  main.main()
+      /path/main.go:13 +0x9d
+==================
+Found 1 data race(s)
+exit status 66                                           ← 非零退出码,CI 会失败</code></pre>
+
+    <table>
+      <thead><tr><th>关键字段</th><th>含义</th></tr></thead>
+      <tbody>
+        <tr><td><code>Write at 0x...</code> / <code>Read at 0x...</code></td><td>当前冲突访问的内存地址 + 类型</td></tr>
+        <tr><td><code>Previous write/read</code></td><td>对同一地址的另一次访问</td></tr>
+        <tr><td>栈帧 (<code>main.func1</code>...)</td><td>访问发生的代码位置,精确到行号</td></tr>
+        <tr><td><code>Goroutine N (running/finished)</code></td><td>那个 G 的状态以及它在哪里被 <code>go</code> 启动</td></tr>
+        <tr><td>退出码 <code>66</code></td><td>race 检测到时,默认进程以 66 退出。可用 <code>GORACE="halt_on_error=0"</code> 让程序继续</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="ci">4. 在测试与 CI 中常态化</h2>
+
+    <pre class="language-go"><code>package counter_test
+
+import (
+    "sync"
+    "testing"
+)
+
+func TestCounter_Race(t *testing.T) {
+    var counter int
+    var wg sync.WaitGroup
+    for i := 0; i &lt; 1000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            counter++ // 等待 -race 发现
+        }()
+    }
+    wg.Wait()
+    if counter != 1000 {
+        t.Errorf("Expected 1000, got %d", counter)
+    }
+}</code></pre>
+
+    <pre class="language-bash"><code>go test -race -v -count=1 ./...</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">CI 接入建议</span>
+      <ul style="margin:8px 0 0 0">
+        <li>把 <code>go test -race ./...</code> 加进 PR check,任何 race 都阻塞合并</li>
+        <li>常跑 <code>-race -count=5</code> 增加调度多样性,提高 race 命中率</li>
+        <li>用 <code>GORACE="halt_on_error=1 log_path=stderr"</code> 第一时间停下来看完整栈</li>
+      </ul>
+    </div>
+
+    <h2 id="java-compare">5. Java 对照:ThreadSanitizer / Helgrind / FindBugs</h2>
+
+    <table>
+      <thead><tr><th>维度</th><th>Java</th><th>Go</th></tr></thead>
+      <tbody>
+        <tr><td>是否内置</td><td>❌ 外部工具</td><td>✅ 内置 <code>-race</code></td></tr>
+        <tr><td>配置成本</td><td>JVM agent / 字节码增强,需要单独安装</td><td>一个标志</td></tr>
+        <tr><td>运行时开销</td><td>10-100× CPU,5-30× 内存</td><td>2-10× CPU,5-10× 内存</td></tr>
+        <tr><td>误报率</td><td>有(尤其反射 / Unsafe)</td><td>极低(基于编译器插桩 + 明确 HB 规则)</td></tr>
+        <tr><td>是否漏报</td><td>会漏(未执行的路径检测不到)</td><td>同样会漏(动态分析的本质局限)</td></tr>
+        <tr><td>典型工具</td><td>ThreadSanitizer / Helgrind / FindBugs / SpotBugs / Coverity</td><td>go <code>-race</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout java">
+      <span class="callout-title">Java 老兵的迁移惊喜</span>
+      Java 里你想跑一次 race 检测,大概率要装 ThreadSanitizer、改 JVM 参数、改 Maven 配置,然后等十几倍的运行时间。Go 里就一个 <code>-race</code>,几乎所有团队都把它接进了 CI。这是 Go 在并发工程化上做得最漂亮的事情之一。
+    </div>
+
+    <h2 id="pitfalls">6. 生产环境坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1:不在 CI 跑 -race</span>
+<pre class="language-bash" style="margin: 8px 0 0 0"><code># ❌ 只跑常规测试,race 永远发现不了
+go test ./...
+
+# ✅ 至少在主分支 / 夜间任务里常跑
+go test -race -count=1 ./...</code></pre>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2:以为 -race 能找出所有问题</span>
+      <code>-race</code> 是<strong>动态分析</strong>——只能检测<strong>实际跑到的</strong>代码路径上的竞争。如果你的并发分支没被测试触发,race 一辈子检测不到。<br/>
+      <strong>对策</strong>:写并发测试时主动用大循环 + <code>runtime.Gosched()</code> 让调度更激进;关键路径用 <code>-count=5/10</code> 重复多次。
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 3:把 -race 二进制上生产</span>
+<pre class="language-bash" style="margin: 8px 0 0 0"><code># ❌ 生产用 -race 编译,性能直接腰斩
+go build -race -o server
+
+# ✅ 生产用普通编译,只在开发 / 测试 / 灰度自检用 -race
+go build -o server</code></pre>
+      插桩二进制的内存占用是普通版本 5-10 倍,CPU 大幅下降。除非用「灰度小流量 + 短时间」临时排查偶发问题,否则不要在生产开 race。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 4:跑测试时忘了 <code>-count=1</code></span>
+      Go test 默认会缓存测试结果。如果你改完代码加了 <code>-race</code> 但忘加 <code>-count=1</code>,可能直接命中缓存,根本没真正跑。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+
+    <h3>练习 2.1 · 实战</h3>
+    <ol>
+      <li>写一个明显有 race 的程序(<code>counter++</code> 在 1000 个 G 里并发),跑 <code>go run -race</code>,把输出贴出来逐行解释。</li>
+      <li>对应写一个 <code>TestXxx</code>,通过 <code>go test -race</code> 让 CI 失败,观察 exit status。</li>
+    </ol>
+
+    <h3>练习 2.2 · 概念题</h3>
+    <ol>
+      <li>Race detector 是如何工作的?它的核心算法依赖什么?</li>
+      <li>为什么 <code>-race</code> 能找到 race 但不能<strong>证明</strong>程序没有 race?用「动态分析 vs 静态分析」的角度回答。</li>
+      <li>列出 3 种建立 happens-before 关系的方式。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./01_data_race.html">
+        <div class="label">← 上一页</div>
+        <div class="title">6.1 · 什么是数据竞争</div>
+      </a>
+      <a class="next" href="./03_fixing_races.html">
+        <div class="label">下一页 →</div>
+        <div class="title">6.3 · 修复 race</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

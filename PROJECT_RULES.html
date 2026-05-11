@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PROJECT RULES · Go Learning</title>
+<link rel="stylesheet" href="./assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="./README.html" class="home-link">⬢ Go Learning</a>
+    <a href="./study-plan.html">学习总览 · Study Plan</a>
+    <a href="./PROJECT_RULES.html" class="active">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="./docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="./docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="./docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="./docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="./unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="./unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="./unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="./unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="./unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="./unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="./unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="./unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="./unit_02_concurrency/lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="./unit_02_concurrency/lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="./unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="./unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="./unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="./unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="./README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <span class="current">📐 PROJECT RULES</span>
+    </nav>
+
+    <h1>📐 Project Rules · 项目开发规范</h1>
+
+    <div class="callout danger">
+      <span class="callout-title">单一真相源 (Single Source of Truth)</span>
+      本规范为本项目所有开发工作的<strong>单一真相源</strong>。所有 Lesson 推进、文档撰写、代码组织,
+      都必须严格遵守。涉及到 <code>study-plan.md</code> / <code>README.md</code> 的内容,
+      <strong>以本文件为准</strong>。
+    </div>
+
+    <h2 id="overview">🗺️ 规范层级总览</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+mindmap
+  root((PROJECT<br/>RULES))
+    学员定位
+      Java 资深后端
+      迁移到 Go
+      字节大厂水平
+    强制对比
+      概念对照表
+      Java↔Go 代码
+      心智迁移要点
+      底层原理解析
+    目录结构
+      .md 在根目录
+      .go 在 code/ 子目录
+      docs/ 架构思路文档
+    Section 5 部分
+      核心说明
+      Java 对比
+      错误正确对照
+      生产坑点
+      练习题
+    Lesson 验收
+      go run . 不 panic
+      go test 全过
+      文档完整
+      README 已更新
+    工作方式
+      Unit Lesson Section 三级
+      run.go 串联
+      文档三同步
+      默认中文输出
+      </div>
+      <div class="diagram-caption">图 1 · 项目规范的心智地图(Mindmap)</div>
+    </div>
+
+    <h2 id="background">1. 学员背景与目标</h2>
+
+    <div class="callout java">
+      <span class="callout-title">Java 出身,迁移到 Go</span>
+      <strong>学员背景</strong>: 资深 Java 后端工程师,长期从事国际化分布式微服务开发。
+    </div>
+
+    <p><strong>学习目标</strong>: 达到 "在字节跳动等大厂浸淫多年的资深 Golang 分布式微服务开发者" 水平,
+    能够独立设计、阅读、评审、优化极高并发与复杂度的 Go 核心代码。</p>
+
+    <p><strong>核心迁移</strong>: 从 Java 生态迁移到 Go 生态,重点掌握:</p>
+    <ul>
+      <li><strong>心智模型</strong>: 值语义/指针、接口、错误处理、并发模型</li>
+      <li><strong>底层原理</strong>: G-M-P 调度器、GC、内存逃逸、性能调优</li>
+      <li><strong>微服务实战</strong>: context 传递、超时重试、幂等、限流熔断、可观测性</li>
+    </ul>
+
+    <h2 id="java-compare">2. 强制规范:Java 对比要求</h2>
+
+    <h3 id="basic-principle">2.1 基本原则</h3>
+    <p><strong>所有知识点必须包含详细的 Java-Go 对照</strong>,因为学员是 Java 资深开发者,
+    需要建立清晰的迁移映射。</p>
+
+    <h3 id="compare-content">2.2 Java 对比的内容要求</h3>
+
+    <p>每个 Section 文档必须包含:</p>
+
+    <table>
+      <thead>
+        <tr><th>对比类型</th><th>要求</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>概念对照表</strong></td><td>表格形式,列出 Java 概念与 Go 对应概念的差异</td></tr>
+        <tr><td><strong>代码对照</strong></td><td>同时提供 Java 代码示例和 Go 代码示例</td></tr>
+        <tr><td><strong>心智迁移要点</strong></td><td>重点说明 Java 开发者需要注意的思维转变</td></tr>
+        <tr><td><strong>底层原理解析</strong></td><td>解释「为什么 Go 这样设计」</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="reinforce-topics">2.3 强化对比的主题</h3>
+
+    <p>除了语法层面,还需要包含:</p>
+    <ul>
+      <li><strong>设计模式对照</strong>: Singleton、Factory、Strategy 等在 Go 中的实现</li>
+      <li><strong>微服务组件对照</strong>: Spring Cloud vs Go 生态(gRPC、gin、zap、viper 等)</li>
+      <li><strong>并发库对照</strong>: <code>java.util.concurrent</code> vs <code>sync</code>/<code>channel</code></li>
+      <li><strong>架构思路对照</strong>: 面向对象 vs 组合、异常 vs 值错误、IoC vs 依赖注入</li>
+    </ul>
+
+    <h2 id="directory">3. 目录结构规范</h2>
+
+    <h3 id="overall-arch">3.1 整体架构</h3>
+
+    <pre class="language-bash"><code>go-learning/
+├── PROJECT_RULES.md      # ✅ 本文件:开发规范(单一真相源)
+├── README.md              # 项目说明与进度
+├── study-plan.md          # 学习计划(引用 PROJECT_RULES.md)
+├── go.mod                 # Go Module 定义
+├── main.go                # 主程序入口
+├── pkg/                   # 公共包
+├── docs/                  # ✅ 架构思路对比文档
+├── unit_01_fundamentals/  # Unit 1: 基础
+├── unit_02_concurrency/   # Unit 2: 并发
+└── ...</code></pre>
+
+    <h3 id="lesson-structure">3.2 Lesson 目录结构(强制)</h3>
+
+    <div class="callout warn">
+      <span class="callout-title">问题</span>
+      过去 <code>.md</code> 和 <code>.go</code> 文件混在一起,目录非常乱。
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">解决方案</span>
+      所有 <code>.go</code> 文件放入 <code>code/</code> 子目录;
+      所有 <code>.md</code> 文档保留在 Lesson 根目录。
+    </div>
+
+    <p><strong>新结构示例</strong>:</p>
+
+    <pre class="language-bash"><code>lesson_01_goroutine/
+├── lesson_01_goroutine.md    # Lesson 总览与目录
+├── 01_goroutine_intro.md      # Section 1 文档
+├── 02_goroutine_scheduling.md # Section 2 文档
+├── 03_goroutine_leak.md       # Section 3 文档
+└── code/                       # ✅ 所有 .go 文件
+    ├── goroutine.go            # 演示代码
+    ├── run.go                  # 统一 Run() 入口
+    └── review_test.go          # 单元测试</code></pre>
+
+    <h3 id="dir-explain">3.3 目录规范说明</h3>
+
+    <table>
+      <thead>
+        <tr><th>位置</th><th>内容</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>lesson_xx_*/</code> 根目录</td>
+          <td><code>.md</code> 文档</td>
+          <td>所有 Markdown 文档直接放在 Lesson 根目录</td>
+        </tr>
+        <tr>
+          <td><code>lesson_xx_*/code/</code></td>
+          <td><code>.go</code> 文件</td>
+          <td>所有 Go 代码文件(.go、_test.go)放在 code 子目录</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p><strong>Import 路径变化</strong>:</p>
+
+    <pre class="language-go"><code>// 重构前
+import "go-learning/unit_02_concurrency/lesson_01_goroutine"
+
+// 重构后
+import "go-learning/unit_02_concurrency/lesson_01_goroutine/code"
+
+// 调用方式不变(包名保持不变)
+lesson_01_goroutine.Run()</code></pre>
+
+    <h2 id="section-spec">4. Section 文档规范(强制)</h2>
+
+    <p>每个 Section 文档必须包含以下 5 个部分。下图展示了 Section 的标准文档骨架与推进顺序:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  S1["4.1 知识点核心说明<br/>底层原理"]:::core --> S2["4.2 Java 与 Go 对比<br/>强制"]:::java
+  S2 --> S3["4.3 可运行代码<br/>错误 vs 正确"]:::code
+  S3 --> S4["4.4 生产坑点<br/>实战陷阱"]:::pit
+  S4 --> S5["4.5 练习题<br/>明确验收"]:::done
+
+  classDef core fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef java fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef code fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+  classDef pit fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+  classDef done fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+      </div>
+      <div class="diagram-caption">图 2 · Section 文档的 5 个强制板块</div>
+    </div>
+
+    <h3 id="s41">4.1 知识点核心说明(底层原理)</h3>
+    <ul>
+      <li>解释该知识点的核心概念</li>
+      <li>说明 Go 为什么这样设计</li>
+      <li>必要时讲解底层实现原理</li>
+    </ul>
+
+    <h3 id="s42">4.2 Java 与 Go 的对比说明(强制)</h3>
+    <ul>
+      <li>表格形式的概念对照</li>
+      <li>突出 Java 开发者需要注意的差异</li>
+      <li>心智迁移要点</li>
+    </ul>
+
+    <h3 id="s43">4.3 可运行代码示例</h3>
+    <ul>
+      <li><strong>错误写法</strong> + <strong>正确写法</strong> 的对比</li>
+      <li>Java 代码示例 + Go 代码示例 对照</li>
+      <li>代码必须可直接运行</li>
+    </ul>
+
+    <h3 id="s44">4.4 生产环境坑点提示</h3>
+    <ul>
+      <li>列出该知识点在实际生产中常见的陷阱</li>
+      <li>提供解决方案或规避建议</li>
+    </ul>
+
+    <h3 id="s45">4.5 练习题(明确验收标准)</h3>
+    <ul>
+      <li>设计与知识点相关的练习</li>
+      <li>明确验收标准(如何判断练习完成)</li>
+    </ul>
+
+    <h2 id="acceptance">5. Lesson 验收标准(强制)</h2>
+
+    <p>每个 Lesson 完成后必须满足:</p>
+
+    <ol>
+      <li>✅ <code>go run .</code> 能正常执行 Lesson 演示代码,无 panic</li>
+      <li>✅ <code>go test ./&lt;lesson目录&gt;/code</code> 所有测试用例通过</li>
+      <li>✅ 所有 Section 文档完整,包含 Java 对比和坑点提示</li>
+      <li>✅ README.md 进度状态已更新</li>
+      <li>✅ 代码符合 <code>gofmt</code> 规范</li>
+      <li>✅ 目录结构符合本规范(.md 在根目录,.go 在 code/)</li>
+    </ol>
+
+    <div class="callout tip">
+      <span class="callout-title">CI 自检建议</span>
+      可以在仓库根目录写一个简单的脚本,串联 <code>gofmt -l .</code> / <code>go vet ./...</code> /
+      <code>go test ./...</code> / <code>go run .</code>,以便每次推进 Lesson 时一键自检。
+    </div>
+
+    <h2 id="style">6. 代码风格与最佳实践</h2>
+
+    <h3 id="s61">6.1 基本规范</h3>
+    <ul>
+      <li>使用 <code>gofmt</code> 格式化代码</li>
+      <li>优先使用标准库,避免不必要的第三方依赖</li>
+      <li>示例代码必须简洁、工程化、可运行</li>
+    </ul>
+
+    <h3 id="s62">6.2 命名规范</h3>
+    <ul>
+      <li><strong>包名</strong>: 小写,简洁,不使用下划线</li>
+      <li><strong>公开函数/类型</strong>: 首字母大写</li>
+      <li><strong>私有函数/类型</strong>: 首字母小写</li>
+    </ul>
+
+    <h3 id="s63">6.3 注释规范</h3>
+    <ul>
+      <li>公开的包、函数、类型必须有注释</li>
+      <li>注释以名称开头,如: <code>// Package calc provides ...</code></li>
+    </ul>
+
+    <h2 id="docs-spec">7. 架构思路文档规范</h2>
+
+    <h3 id="s71">7.1 <code>docs/</code> 目录</h3>
+    <p>创建 <code>docs/</code> 目录存放概念性、思路性的对比文档,这些文档可能没有对应的代码。</p>
+
+    <h3 id="s72">7.2 架构文档清单</h3>
+
+    <table>
+      <thead>
+        <tr><th>文档</th><th>内容</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><a href="./docs/java_go_architecture.html"><code>java_go_architecture.md</code></a></td><td>架构思路对比</td></tr>
+        <tr><td><a href="./docs/java_go_concurrency.html"><code>java_go_concurrency.md</code></a></td><td>并发库对照</td></tr>
+        <tr><td><a href="./docs/java_go_design_patterns.html"><code>java_go_design_patterns.md</code></a></td><td>设计模式对照</td></tr>
+        <tr><td><a href="./docs/java_go_microservices.html"><code>java_go_microservices.md</code></a></td><td>微服务组件对照</td></tr>
+      </tbody>
+    </table>
+
+    <h3 id="s73">7.3 架构文档内容要求</h3>
+    <ul>
+      <li>可以是纯概念讲解,不要求代码</li>
+      <li>重点对比 Java 生态和 Go 生态的思路差异</li>
+      <li>结合微服务场景讲解</li>
+    </ul>
+
+    <h2 id="workflow">8. 工作方式(必须严格遵守)</h2>
+
+    <h3 id="s81">8.1 Unit → Lesson → Section 三级架构</h3>
+    <p>教学推进必须按照「Unit (大单元) → Lesson (课程) → Section (小节知识点)」的层级进行。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  U[Unit 大单元<br/>宏观阶段]:::unit
+  U --> L1[Lesson 课程<br/>具体课题]:::lesson
+  U --> L2[Lesson ...]:::lesson
+  L1 --> S1[Section 知识点]:::sec
+  L1 --> S2[Section ...]:::sec
+  S1 --> D[📄 .html 知识文档<br/>含 Java 对照]:::doc
+  S1 --> C[💻 .go 可运行代码]:::code
+  L1 --> R[🚀 run.go 演示总入口]:::run
+  L1 --> T[🧪 _test.go 验收测试]:::test
+
+  classDef unit fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+  classDef lesson fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef sec fill:#f9e2af,color:#11111b,stroke:#f9e2af;
+  classDef doc fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+  classDef code fill:#94e2d5,color:#11111b,stroke:#94e2d5;
+  classDef run fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef test fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+      </div>
+      <div class="diagram-caption">图 3 · Unit / Lesson / Section 三级架构</div>
+    </div>
+
+    <h3 id="s82">8.2 串联执行机制</h3>
+    <p>每个 Lesson 必须提供 <code>code/run.go</code> 封装当前 Lesson 所有 Section 的演示,
+    并确保在项目根目录的 <code>main.go</code> 中被导入和调用。</p>
+
+    <pre class="language-go"><code>// main.go
+package main
+
+import (
+    basics  "go-learning/unit_01_fundamentals/lesson_01_basics/code"
+    grouts  "go-learning/unit_02_concurrency/lesson_01_goroutine/code"
+)
+
+func main() {
+    basics.Run()
+    grouts.Run()
+}</code></pre>
+
+    <h3 id="s83">8.3 进度追踪</h3>
+    <p>每完成一个 Lesson,必须更新项目根目录 <code>README.md</code> 的学习进度与路线图状态。</p>
+
+    <h3 id="s84">8.4 文档同步</h3>
+
+    <div class="callout warn">
+      <span class="callout-title">三件套同步规则</span>
+      每次执行完任何调整后,必须同时检查
+      <strong>PROJECT_RULES.md</strong> /
+      <strong>study-plan.md</strong> /
+      <strong>README.md</strong>,确保内容一致。
+    </div>
+
+    <h2 id="lang">9. 输出语言</h2>
+    <p>默认中文;专业术语可中英并列。每次修改代码后,必须主动执行 <code>go test ./...</code> 和 <code>go run .</code> 并告知结果。</p>
+
+    <hr/>
+
+    <div class="callout danger">
+      <span class="callout-title">最终强调</span>
+      本规范为项目开发的<strong>单一真相源</strong>,所有开发工作必须严格遵守。
+      在 study-plan / README 与本文件出现冲突时,以本文件为准。
+    </div>
+
+    <div class="page-nav">
+      <a class="prev" href="./study-plan.html">
+        <div class="label">← 上一页</div>
+        <div class="title">Study Plan</div>
+      </a>
+      <a class="next" href="./docs/java_go_architecture.html">
+        <div class="label">下一篇 →</div>
+        <div class="title">Java/Go 架构思路</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="./assets/site.js"></script>
+</body>
+</html>

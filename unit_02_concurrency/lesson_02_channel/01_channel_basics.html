@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2.1 Channel 基础 · Lesson 2 · Channel · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html" class="active">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_02_channel.html">L2 · Channel</a>
+      <span class="sep">/</span>
+      <span class="current">2.1 Channel 基础</span>
+    </nav>
+
+    <h1>2.1 Channel 基础</h1>
+
+    <h2 id="what">1.1 什么是 Channel</h2>
+
+    <p>Channel 是 Go 用于 <strong>Goroutine 间通信和同步</strong>的核心原语,
+       是 CSP (Communicating Sequential Processes) 并发模型的语言级实现。</p>
+
+    <div class="callout tip">
+      <span class="callout-title">CSP 核心思想</span>
+      <strong>「不要通过共享内存来通信,而要通过通信来共享内存」</strong> — Rob Pike。
+      Java 的世界:多线程操作同一块内存,用 <code>synchronized</code> / <code>Lock</code> 保护。
+      Go 的世界:每个 Goroutine 持有自己的状态,通过 channel 把数据交给下一个 Goroutine。
+    </div>
+
+    <h2 id="types">1.2 Channel 的两种类型</h2>
+
+    <table>
+      <thead><tr><th>类型</th><th>语法</th><th>行为</th></tr></thead>
+      <tbody>
+        <tr><td>无缓冲 Channel</td><td><code>make(chan T)</code></td><td>send 和 recv 必须<strong>同时就绪</strong>,否则阻塞 — 强同步 handoff</td></tr>
+        <tr><td>有缓冲 Channel</td><td><code>make(chan T, n)</code></td><td>缓冲未满时 send 不阻塞;缓冲非空时 recv 不阻塞</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="ops">1.3 基本操作</h2>
+
+    <pre class="language-go"><code>ch := make(chan int)
+
+// 发送
+ch &lt;- 42
+
+// 接收
+val := &lt;-ch
+
+// comma-ok 检查 channel 是否已关闭
+val, ok := &lt;-ch
+if !ok {
+    fmt.Println("channel 已关闭,收到的是零值")
+}
+
+// 关闭(只能由 sender 关闭,不能 close 已 nil 的 channel,
+// 也不能 close 两次,否则 panic)
+close(ch)
+
+// 用 range 遍历直到关闭
+for v := range ch {
+    fmt.Println(v)
+}</code></pre>
+
+    <h2 id="sync-diagram">1.4 必看图: 无缓冲 channel 的同步 handoff</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  participant G1 as Sender goroutine
+  participant Ch as ch (unbuffered)
+  participant G2 as Receiver goroutine
+
+  Note over G1,G2: 场景 1 — sender 先到
+  G1->>Ch: ch <- 42
+  Note over G1,Ch: G1 阻塞,挂到 ch.sendq
+  G2->>Ch: v := <-ch
+  Ch-->>G2: 直接拷贝 42 → v
+  Ch-->>G1: 唤醒 G1 继续
+  Note over G1,G2: 两端继续执行
+
+  Note over G1,G2: 场景 2 — receiver 先到
+  G2->>Ch: v := <-ch
+  Note over G2,Ch: G2 阻塞,挂到 ch.recvq
+  G1->>Ch: ch <- 42
+  Ch-->>G2: 直接拷贝 42 → v(不进缓冲)
+  Ch-->>G1: 唤醒 G1 继续
+      </div>
+      <div class="diagram-caption">图 · 无缓冲 channel 是<strong>同步 rendezvous</strong>:谁先到谁阻塞,数据在二者之间直接拷贝,根本不经过缓冲区。</div>
+    </div>
+
+    <h2 id="java-vs-go">1.5 Java 对照</h2>
+
+    <table>
+      <thead><tr><th>特性</th><th>Java</th><th>Go</th></tr></thead>
+      <tbody>
+        <tr><td>通信原语</td><td><code>BlockingQueue</code></td><td>Channel</td></tr>
+        <tr><td>同步方式</td><td>共享内存 + 锁(主) / 队列(辅)</td><td>CSP 通信(主)</td></tr>
+        <tr><td>无缓冲</td><td><code>SynchronousQueue</code></td><td><code>make(chan T)</code></td></tr>
+        <tr><td>有缓冲</td><td><code>ArrayBlockingQueue</code> / <code>LinkedBlockingQueue</code></td><td><code>make(chan T, n)</code></td></tr>
+        <tr><td>阻塞方法</td><td><code>put()</code> / <code>take()</code></td><td><code>ch&lt;-v</code> / <code>&lt;-ch</code></td></tr>
+        <tr><td>非阻塞</td><td><code>offer()</code> / <code>poll()</code></td><td><code>select + default</code></td></tr>
+        <tr><td>关闭语义</td><td>无统一关闭概念,看具体队列</td><td><code>close(ch)</code>,广播给所有 receiver</td></tr>
+        <tr><td>异常</td><td>抛 <code>InterruptedException</code></td><td>不抛异常,阻塞是正常控制流</td></tr>
+      </tbody>
+    </table>
+
+    <h3>代码对照</h3>
+
+    <p><strong>Java (SynchronousQueue 等价于无缓冲 Channel):</strong></p>
+    <pre class="language-java"><code>import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.SynchronousQueue;
+
+public class Main {
+    public static void main(String[] args) throws InterruptedException {
+        BlockingQueue&lt;Integer&gt; queue = new SynchronousQueue&lt;&gt;();
+
+        new Thread(() -> {
+            try {
+                System.out.println("Thread: 发送数据 42");
+                queue.put(42);
+                System.out.println("Thread: 发送完成");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }).start();
+
+        System.out.println("Main: 等待接收...");
+        Integer val = queue.take();
+        System.out.println("Main: 接收到 " + val);
+    }
+}</code></pre>
+
+    <p><strong>Go (无缓冲 Channel):</strong></p>
+    <pre class="language-go"><code>package main
+
+import "fmt"
+
+func main() {
+    ch := make(chan int)
+
+    go func() {
+        fmt.Println("Goroutine: 发送数据 42")
+        ch &lt;- 42
+        fmt.Println("Goroutine: 发送完成")
+    }()
+
+    fmt.Println("Main: 等待接收...")
+    val := &lt;-ch
+    fmt.Printf("Main: 接收到 %d\n", val)
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">心智迁移要点</span>
+      <ul>
+        <li>Java: 共享内存是默认方式,队列只是辅助工具</li>
+        <li>Go: Channel 是并发通信的<strong>核心方式</strong>,优先考虑 Channel</li>
+        <li>Java: <code>InterruptedException</code> 必须捕获或上抛</li>
+        <li>Go: Channel 操作不会抛异常,阻塞是正常控制流(不是异常)</li>
+      </ul>
+    </div>
+
+    <h2 id="closed">1.6 关闭语义与 comma-ok 惯用法</h2>
+
+    <h3>错误写法:从已关闭 channel 接收,收到零值还以为是正常数据</h3>
+
+    <pre class="language-go"><code>ch := make(chan int)
+close(ch)
+val := &lt;-ch // 不 panic,收到 int 零值 0
+fmt.Println(val) // 输出 0 — 但你以为 sender 真的发了 0?</code></pre>
+
+    <h3>正确写法:comma-ok 检查关闭</h3>
+
+    <pre class="language-go"><code>ch := make(chan int, 1)
+ch &lt;- 42
+close(ch)
+
+val, ok := &lt;-ch
+if ok {
+    fmt.Println("接收到:", val) // 42, ok=true
+}
+
+val, ok = &lt;-ch
+if !ok {
+    fmt.Println("Channel 已关闭,收到零值") // ok=false
+}
+
+// 或用 range 自动处理关闭
+ch2 := make(chan int, 3)
+ch2 &lt;- 1; ch2 &lt;- 2; ch2 &lt;- 3
+close(ch2)
+for v := range ch2 {
+    fmt.Println("遍历收到:", v)
+}</code></pre>
+
+    <h2 id="buffer">1.7 无缓冲 vs 有缓冲</h2>
+
+    <pre class="language-go"><code>// 无缓冲 Channel — 必须 sender + receiver 同时就绪
+unbuffered := make(chan int)
+go func() {
+    unbuffered &lt;- 1  // 阻塞,直到 main 来 &lt;-unbuffered
+}()
+
+// 有缓冲 Channel — 缓冲区满之前 send 不阻塞
+buffered := make(chan int, 2)
+buffered &lt;- 1  // 立即返回
+buffered &lt;- 2  // 立即返回
+// buffered &lt;- 3  // 这一行会阻塞,缓冲区已满</code></pre>
+
+    <h2 id="pitfalls">1.8 生产坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1: 向已关闭的 channel 发送会 panic</span>
+    </div>
+    <pre class="language-go"><code>ch := make(chan int)
+close(ch)
+ch &lt;- 1 // panic: send on closed channel</code></pre>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 2: 关闭 channel 多次会 panic</span>
+    </div>
+    <pre class="language-go"><code>ch := make(chan int)
+close(ch)
+close(ch) // panic: close of closed channel</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3: 忘记 close 导致 range 永远阻塞</span>
+      详见 <a href="../lesson_01_goroutine/03_goroutine_leak.html">1.3 Goroutine 泄露</a>。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 4: nil channel 永远阻塞</span>
+    </div>
+    <pre class="language-go"><code>var ch chan int  // nil channel
+ch &lt;- 1          // 永远阻塞!不 panic
+&lt;-ch             // 永远阻塞!不 panic
+
+// 但这正是 select 中「禁用某个 case」的常用技巧 — 见 L3.3</code></pre>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li>用两个 Goroutine 和两个无缓冲 channel,实现交替打印 "A" 和 "B" 各 5 次,输出 <code>ABABABABAB</code>。</li>
+      <li>解释:无缓冲 channel 和容量为 0 的「有缓冲 channel」(<code>make(chan int, 0)</code>)有区别吗?</li>
+      <li>为什么 Go 强调「通过通信共享内存」,这种模型相比 Java 的「共享内存 + 锁」有哪些工程优势?</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_02_channel.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L2 总览</div>
+      </a>
+      <a class="next" href="./02_channel_patterns.html">
+        <div class="label">下一页 →</div>
+        <div class="title">2.2 Channel 模式</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

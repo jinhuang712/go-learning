@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lesson 2 · Collections 集合 · Go Learning</title>
+<title>Lesson 0 · Packages 包系统 · Go Learning</title>
 <link rel="stylesheet" href="../../assets/style.css" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
 </head>
@@ -21,9 +21,9 @@
     <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
 
     <h2>Unit 1 · 基础与心智模型</h2>
-    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html" class="active">L0 · Packages</a>
     <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
-    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html" class="active">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
     <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
     <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
     <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
@@ -47,72 +47,76 @@
       <span class="sep">/</span>
       <a href="../../study-plan.html">Study Plan</a>
       <span class="sep">/</span>
-      <span class="current">Unit 1 · Lesson 2 · Collections</span>
+      <span class="current">Unit 1 · Lesson 0 · Packages</span>
     </nav>
 
-    <h1>Lesson 2 · 集合类型 Collections & Internals</h1>
+    <h1>Lesson 0 · Go Package 系统详解</h1>
 
-    <p>本课程主要介绍 Go 语言中的核心集合类型:<strong>数组、切片 (Slice) 和 映射 (Map)</strong>。
-    不要被它们简单的语法欺骗,作为资深开发者,你必须深入理解它们在内存中的底层结构,才能避开性能和并发陷阱。</p>
+    <p>本课程为 Java 开发者建立 Go <strong>Package / Import / Module / Visibility</strong> 的完整心智模型,并把所有概念与 Maven/Gradle、JDK 包系统一一对照。</p>
 
     <div class="callout note">
       <span class="callout-title">学习地图</span>
-      数组是切片的基石,切片是工程中最常用的集合,Map 则是并发场景下的“雷区”。我们从底层结构入手,层层递进。
+      Package 是 Go 代码的基本组织单元,Import 是引用机制,Module 是项目级依赖管理,而 Visibility(可见性)由<strong>首字母大小写</strong>静默决定。
+      理解这 4 件事的彼此关系,就掌握了一个 Go 项目骨架。
     </div>
 
     <div class="diagram">
       <div class="mermaid">
 flowchart LR
-  A[2.1<br/>数组 Array<br/>定长 · 值类型]:::base --> S[2.2<br/>切片 Slice<br/>三字段 header]:::core
-  S --> M[2.3<br/>映射 Map<br/>哈希桶 + 并发雷区]:::pit
+  S0[0.1<br/>Package 基础]:::sec --> S1[0.2<br/>Import 机制]:::sec
+  S1 --> S2[0.3<br/>Go Module 依赖]:::sec
+  S2 --> S3[0.4<br/>可见性规则]:::vip
 
-  classDef base fill:#89b4fa,color:#11111b,stroke:#89b4fa;
-  classDef core fill:#cba6f7,color:#11111b,stroke:#cba6f7;
-  classDef pit  fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+  classDef sec fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef vip fill:#fab387,color:#11111b,stroke:#fab387;
       </div>
-      <div class="diagram-caption">图 · Lesson 2 的三个 Section 推进路径:从定长数组到引用切片再到并发危险的 Map</div>
+      <div class="diagram-caption">图 · Lesson 0 的 4 个 Section 推进顺序</div>
     </div>
 
     <h2 id="sections">📑 课程目录</h2>
 
     <div class="card-grid">
-      <a class="card" href="./01_array_internals.html">
-        <div class="card-title">2.1 · 数组 (Array) 核心剖析</div>
+      <a class="card" href="./01_package_basics.html">
+        <div class="card-title">0.1 · Go Package 基础</div>
         <div class="card-desc">
-          长度是类型的一部分 · 纯粹的值传递
-          <span class="badge badge-go">VALUE</span>
+          什么是 Package · <code>package</code> 声明 · 目录与 Package 的关系
+          <span class="badge badge-java">JAVA 对照</span>
         </div>
       </a>
-      <a class="card" href="./02_slice_internals.html">
-        <div class="card-title">2.2 · 切片 (Slice) 核心剖析与坑点</div>
+      <a class="card" href="./02_import_mechanism.html">
+        <div class="card-title">0.2 · Import 机制</div>
         <div class="card-desc">
-          三字段结构 (Pointer, len, cap) · make · 截取副作用 · 安全 Clone · append 扩容
-          <span class="badge badge-pitfall">PITFALL</span>
+          <code>import</code> 语法 · 命名/点/下划线导入 · 与 Java import 对比
         </div>
       </a>
-      <a class="card" href="./03_map_internals.html">
-        <div class="card-title">2.3 · 映射 (Map) 核心剖析与并发陷阱</div>
+      <a class="card" href="./03_go_modules.html">
+        <div class="card-title">0.3 · Go Module 系统</div>
         <div class="card-desc">
-          nil map 恐慌 · comma ok · 遍历无序 · 并发 fatal error · sync.Map
+          <code>go.mod</code> / <code>go.sum</code> · <code>go mod tidy</code> · 与 Maven/Gradle 对比
+        </div>
+      </a>
+      <a class="card" href="./04_visibility_rules.html">
+        <div class="card-title">0.4 · 可见性规则</div>
+        <div class="card-desc">
+          首字母大小写控制 public/private · 与 Java 修饰符对比
           <span class="badge badge-pitfall">PITFALL</span>
         </div>
       </a>
     </div>
 
     <h2 id="run">🚀 运行方式</h2>
-    <p>在 <code>main.go</code> 中调用 <code>lesson_02_collections.Run()</code> 即可运行本课程代码。
-    也可以执行如下命令验证练习题。</p>
+    <p>在 <code>main.go</code> 中调用 <code>packages.Run()</code> 即可运行本课程示例代码。</p>
     <pre class="language-bash"><code>go run .
-go test ./unit_01_fundamentals/lesson_02_collections</code></pre>
+go test ./unit_01_fundamentals/lesson_00_packages</code></pre>
 
     <div class="page-nav">
-      <a class="prev" href="../lesson_01_basics/05_copy_clone.html">
+      <a class="prev" href="../../docs/java_go_microservices.html">
         <div class="label">← 上一页</div>
-        <div class="title">1.5 · 深浅拷贝</div>
+        <div class="title">Java/Go 微服务</div>
       </a>
-      <a class="next" href="./01_array_internals.html">
+      <a class="next" href="./01_package_basics.html">
         <div class="label">开始 →</div>
-        <div class="title">2.1 · 数组 Array</div>
+        <div class="title">0.1 · Package 基础</div>
       </a>
     </div>
   </main>

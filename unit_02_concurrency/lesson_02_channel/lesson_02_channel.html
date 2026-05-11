@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lesson 4 · Context 传递与级联取消 · Go Learning</title>
+<title>Lesson 2 · Channel 模式与底层 · Go Learning</title>
 <link rel="stylesheet" href="../../assets/style.css" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
 </head>
@@ -31,9 +31,9 @@
 
     <h2>Unit 2 · 并发与并行</h2>
     <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
-    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html" class="active">L2 · Channel</a>
     <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
-    <a href="../lesson_04_context/lesson_04_context.html" class="active">L4 · Context</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
     <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
     <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
 
@@ -47,75 +47,75 @@
       <span class="sep">/</span>
       <a href="../../study-plan.html">Study Plan</a>
       <span class="sep">/</span>
-      <span class="current">Unit 2 · Lesson 4 · Context</span>
+      <span class="current">Unit 2 · Lesson 2 · Channel</span>
     </nav>
 
-    <h1>Lesson 4 · Context 传递与级联取消</h1>
+    <h1>Lesson 2 · Channel 模式与底层原理</h1>
 
-    <p>Context 是 Go 微服务的「请求血脉」——一条贯穿 HTTP/gRPC handler、数据库、缓存、下游 RPC 的「取消 + 超时 + 元数据」通道。Java 程序员要把它当作「显式版的 ThreadLocal + InterruptibleFuture + Tracing MDC 三合一」。</p>
+    <p>Channel 是 Go CSP 并发模型的核心通信原语。这一课从 channel 基础语法,推进到工业级常用模式
+       (生产者-消费者、Fan-in/Fan-out、信号量、Worker Pool),最后下钻到 runtime 里的 <code>hchan</code>
+       结构体,把环形缓冲区和等待队列看个明白。</p>
 
-    <div class="callout note">
-      <span class="callout-title">学习地图</span>
-      本 Lesson 围绕 3 个 Section 展开:先理解 Context 接口的 4 个方法 → 再学会派生(WithCancel/WithTimeout/WithValue)→ 最后掌握跨服务传播的工程化最佳实践。
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      Java 程序员对 Channel 最贴近的类比是 <code>java.util.concurrent.BlockingQueue</code>:
+      <code>put()</code> / <code>take()</code> 阻塞,容量满阻塞写、容量空阻塞读。
+      不过 Java 的设计哲学是<strong>共享内存 + 锁</strong>,Channel 只是辅助;
+      Go 反过来,「Don't communicate by sharing memory; share memory by communicating」
+      — 用 Channel 作为<strong>主要</strong>同步原语。
     </div>
 
     <div class="diagram">
       <div class="mermaid">
 flowchart LR
-  S1[4.1<br/>Context 基础<br/>接口 + Background/TODO]:::sec --> S2[4.2<br/>派生 Context<br/>WithCancel/Timeout/Value]:::sec
-  S2 --> S3[4.3<br/>传播最佳实践<br/>HTTP / RPC / 中间件]:::pit
+  S1[2.1<br/>Channel 基础]:::sec --> S2[2.2<br/>常用模式]:::sec
+  S2 --> S3[2.3<br/>底层 hchan]:::deep
+  S3 --> N[L3 · Select]:::next
 
   classDef sec fill:#89b4fa,color:#11111b,stroke:#89b4fa;
-  classDef pit fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef deep fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+  classDef next fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
       </div>
-      <div class="diagram-caption">图 · Lesson 4 三个 Section 的递进顺序</div>
-    </div>
-
-    <div class="callout java">
-      <span class="callout-title">Java 对照视角</span>
-      在 Java 里,你大概率需要拼一套 <code>ThreadLocal</code> + <code>InheritableThreadLocal</code> + <code>InterruptibleFuture</code> + <code>TraceContext</code> 才能凑齐 Go 一个 <code>context.Context</code> 的能力。
-      Go 把这套机制写进了语言生态:<strong>net/http、database/sql、gRPC、各类中间件</strong>都接受 <code>ctx</code> 作为第一个参数。
+      <div class="diagram-caption">图 · Lesson 2 推进顺序:语法 → 模式 → 内部实现</div>
     </div>
 
     <h2 id="sections">📑 课程目录</h2>
 
     <div class="card-grid">
-      <a class="card" href="./01_context_basics.html">
-        <div class="card-title">4.1 · Context 基础</div>
+      <a class="card" href="./01_channel_basics.html">
+        <div class="card-title">2.1 · Channel 基础</div>
         <div class="card-desc">
-          <code>Context</code> 接口的 4 个方法 · <code>Background()</code> vs <code>TODO()</code> · 与 Java <code>ThreadLocal</code> 对比
+          无缓冲 vs 有缓冲 · send / recv / close · 与 Java <code>BlockingQueue</code> 对照
           <span class="badge badge-java">JAVA</span>
         </div>
       </a>
-      <a class="card" href="./02_context_derived.html">
-        <div class="card-title">4.2 · 派生 Context</div>
+      <a class="card" href="./02_channel_patterns.html">
+        <div class="card-title">2.2 · Channel 常用模式</div>
         <div class="card-desc">
-          <code>WithCancel</code> / <code>WithTimeout</code> / <code>WithDeadline</code> / <code>WithValue</code> · 级联取消的树形结构
-          <span class="badge badge-go">GO 核心</span>
+          生产者-消费者 · Fan-in / Fan-out · Pipeline · 信号量 · Worker Pool
         </div>
       </a>
-      <a class="card" href="./03_context_propagation.html">
-        <div class="card-title">4.3 · 传播最佳实践</div>
+      <a class="card" href="./03_channel_underhood.html">
+        <div class="card-title">2.3 · Channel 底层原理</div>
         <div class="card-desc">
-          HTTP middleware · 总是第一个参数 · 不要存进 struct · key 类型设计
-          <span class="badge badge-pitfall">PITFALL</span>
+          <code>hchan</code> 结构 · 环形缓冲区 (sendx / recvx) · sendq / recvq 等待队列
+          <span class="badge badge-tip">DEEP</span>
         </div>
       </a>
     </div>
 
     <h2 id="run">🚀 运行方式</h2>
-    <p>在 <code>main.go</code> 中调用 <code>lesson_04_context.Run()</code> 即可执行本 Lesson 演示代码。</p>
     <pre class="language-bash"><code>go run .
-go test ./unit_02_concurrency/lesson_04_context/...</code></pre>
+go test ./unit_02_concurrency/lesson_02_channel</code></pre>
 
     <div class="page-nav">
-      <a class="prev" href="../lesson_03_select/03_select_pitfalls.html">
-        <div class="label">← 上一节</div>
-        <div class="title">3.3 · select 坑点</div>
+      <a class="prev" href="../lesson_01_goroutine/03_goroutine_leak.html">
+        <div class="label">← 上一页</div>
+        <div class="title">1.3 Goroutine 泄露</div>
       </a>
-      <a class="next" href="./01_context_basics.html">
+      <a class="next" href="./01_channel_basics.html">
         <div class="label">开始 →</div>
-        <div class="title">4.1 · Context 基础</div>
+        <div class="title">2.1 Channel 基础</div>
       </a>
     </div>
   </main>

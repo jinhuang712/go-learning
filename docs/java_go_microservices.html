@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Java/Go 微服务 · Go Learning</title>
+<link rel="stylesheet" href="../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="./java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="./java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="./java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="./java_go_microservices.html" class="active">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../unit_02_concurrency/lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../unit_02_concurrency/lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <span class="current">📚 Java/Go 微服务</span>
+    </nav>
+
+    <h1>Java / Go 微服务组件对照</h1>
+
+    <div class="callout note">
+      <span class="callout-title">本文目标</span>
+      对比 Java 生态(Spring Cloud)和 Go 生态在微服务开发中的常用组件,帮助 Java 开发者快速找到 Go 生态中的对应方案。<br/>
+      记住一句话:<strong>Go 生态偏好小而美的库,而 Java 生态偏好大而全的框架</strong>。
+    </div>
+
+    <h2 id="stack-overview">0. 技术栈全景对照</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  subgraph J["☕ Spring Cloud 全家桶"]
+    direction TB
+    JW["Web · Spring Boot Web"]:::java
+    JR["RPC · Dubbo / gRPC"]:::java
+    JC["Config · Spring Cloud Config"]:::java
+    JD["Discovery · Eureka / Nacos"]:::java
+    JG["Gateway · Spring Cloud Gateway"]:::java
+    JCB["Circuit Breaker · Resilience4j"]:::java
+    JL["Log · Logback / Log4j2"]:::java
+    JM["Metrics · Micrometer"]:::java
+    JT["Tracing · Sleuth + Zipkin"]:::java
+    JOR["ORM · Hibernate / MyBatis"]:::java
+    JMQ["MQ · Spring Kafka / AMQP"]:::java
+  end
+
+  subgraph G["⬢ Go 微服务推荐组合"]
+    direction TB
+    GW["Web · Gin / Echo / Chi"]:::go
+    GR["RPC · gRPC / Kitex"]:::go
+    GC["Config · Viper / koanf"]:::go
+    GD["Discovery · Consul / etcd / Nacos"]:::go
+    GG["Gateway · Kong / Traefik / 自研"]:::go
+    GCB["Circuit Breaker · gobreaker / sentinel-go"]:::go
+    GL["Log · Zap / slog"]:::go
+    GM["Metrics · prometheus client"]:::go
+    GT["Tracing · OpenTelemetry"]:::go
+    GOR["ORM · GORM / Ent / sqlc"]:::go
+    GMQ["MQ · sarama / rocketmq-client-go"]:::go
+  end
+
+  JW -.-> GW
+  JR -.-> GR
+  JC -.-> GC
+  JD -.-> GD
+  JG -.-> GG
+  JCB -.-> GCB
+  JL -.-> GL
+  JM -.-> GM
+  JT -.-> GT
+  JOR -.-> GOR
+  JMQ -.-> GMQ
+
+  classDef java fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef go fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+      </div>
+      <div class="diagram-caption">图 1 · Spring Cloud 全家桶 vs Go 微服务推荐技术栈</div>
+    </div>
+
+    <h2 id="web">1. Web 框架</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java (Spring)</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Web 框架</td><td>Spring Boot Web</td><td>Gin, Echo, Fiber, Chi</td></tr>
+        <tr><td>REST 客户端</td><td>RestTemplate, WebClient</td><td>net/http, Resty, Heimdall</td></tr>
+        <tr><td>参数校验</td><td>Hibernate Validator</td><td>go-playground/validator</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Spring Boot vs Gin 示例</h3>
+
+    <pre class="language-java"><code>// Spring Boot
+@RestController
+@RequestMapping("/api")
+public class UserController {
+
+    @GetMapping("/users/{id}")
+    public ResponseEntity<User> getUser(@PathVariable Long id) {
+        User user = userService.findById(id);
+        return ResponseEntity.ok(user);
+    }
+}</code></pre>
+
+    <pre class="language-go"><code>// Gin
+package main
+
+import "github.com/gin-gonic/gin"
+
+func main() {
+    r := gin.Default()
+
+    r.GET("/api/users/:id", func(c *gin.Context) {
+        id := c.Param("id")
+        c.JSON(200, gin.H{"id": id})
+    })
+
+    r.Run(":8080")
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">心智迁移</span>
+      Spring 通过<strong>注解 + 反射</strong>把路由与方法绑定;Gin 通过<strong>显式注册</strong>路由表。
+      Go 倾向于「代码即配置」,你能直接在源码里看到每条路由。
+    </div>
+
+    <h2 id="rpc">2. RPC 框架</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>RPC 框架</td><td>Dubbo, gRPC</td><td>gRPC, Twirp, rpcx, Kitex</td></tr>
+        <tr><td>序列化</td><td>Protobuf, JSON, Hessian</td><td>Protobuf, JSON, msgpack</td></tr>
+      </tbody>
+    </table>
+
+    <h3>gRPC 示例</h3>
+
+    <p><strong>Protobuf 定义(两边相同)</strong>:</p>
+
+    <pre class="language-bash"><code>service UserService {
+    rpc GetUser(GetUserRequest) returns (User);
+}</code></pre>
+
+    <p><strong>Java 服务端</strong>:</p>
+
+    <pre class="language-java"><code>public class UserServiceImpl extends UserServiceGrpc.UserServiceImplBase {
+    @Override
+    public void getUser(GetUserRequest req, StreamObserver<User> resp) {
+        // ...
+    }
+}</code></pre>
+
+    <p><strong>Go 服务端</strong>:</p>
+
+    <pre class="language-go"><code>type server struct{
+    pb.UnimplementedUserServiceServer
+}
+
+func (s *server) GetUser(ctx context.Context, req *GetUserRequest) (*User, error) {
+    // ...
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">关键差异</span>
+      <ul>
+        <li>Java gRPC 用 <strong>StreamObserver</strong> 异步回调,符合 Java 阻塞 IO 习惯</li>
+        <li>Go gRPC 用 <strong>同步函数 + context</strong>,因为 goroutine 已经天然并发</li>
+        <li>Go 侧必须嵌入 <code>pb.UnimplementedXxxServer</code> 以保证向前兼容</li>
+      </ul>
+    </div>
+
+    <h2 id="config">3. 配置管理</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java (Spring Cloud)</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>本地配置</td><td>application.yml</td><td>Viper, koanf, godotenv</td></tr>
+        <tr><td>远程配置</td><td>Spring Cloud Config</td><td>etcd + Viper, Consul, Apollo</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Viper 示例</h3>
+
+    <pre class="language-go"><code>package main
+
+import "github.com/spf13/viper"
+
+func main() {
+    viper.SetConfigFile("config.yaml")
+    if err := viper.ReadInConfig(); err != nil {
+        log.Fatalf("read config: %v", err)
+    }
+
+    port   := viper.GetInt("server.port")
+    dbHost := viper.GetString("database.host")
+    _ = port
+    _ = dbHost
+}</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点</span>
+      Viper 默认对 key 是<strong>大小写不敏感</strong>的(会全部小写)。
+      如果你的远程配置中心 key 区分大小写,要小心配 <code>viper.SetEnvKeyReplacer</code> 等选项。
+    </div>
+
+    <h2 id="discovery">4. 服务注册与发现</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java (Spring Cloud)</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>注册中心</td><td>Eureka, Consul, Nacos</td><td>Consul, Nacos, etcd</td></tr>
+        <tr><td>客户端负载均衡</td><td>Ribbon, Spring Cloud LoadBalancer</td><td>gRPC 内置 (round-robin / pick_first)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  Cli[Service Client] -- "1. 启动时拉服务列表" --> Reg[(Registry<br/>Consul / etcd / Nacos)]
+  S1[Service Instance #1] -- "Heartbeat" --> Reg
+  S2[Service Instance #2] -- "Heartbeat" --> Reg
+  S3[Service Instance #3] -- "Heartbeat" --> Reg
+  Cli -- "2. 本地 LB 选实例" --> S1
+  Cli -- "or" --> S2
+  Cli -- "or" --> S3
+
+  Reg -. "Watch 变更" .-> Cli
+
+  classDef reg fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+  class Reg reg
+      </div>
+      <div class="diagram-caption">图 2 · 客户端负载均衡的注册发现拓扑(Java/Go 通用)</div>
+    </div>
+
+    <h2 id="resilience">5. 限流熔断</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java (Spring Cloud)</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>熔断器</td><td>Resilience4j, Hystrix</td><td>hystrix-go, gobreaker, sentinel-go</td></tr>
+        <tr><td>限流</td><td>Resilience4j, Bucket4j</td><td><code>golang.org/x/time/rate</code>, uber-go/ratelimit</td></tr>
+      </tbody>
+    </table>
+
+    <h3>gobreaker 示例</h3>
+
+    <pre class="language-go"><code>import "github.com/sony/gobreaker"
+
+var cb = gobreaker.NewCircuitBreaker(gobreaker.Settings{
+    Name:        "my-service",
+    MaxRequests: 5,
+    Interval:    60 * time.Second,
+    Timeout:     30 * time.Second,
+})
+
+result, err := cb.Execute(func() (interface{}, error) {
+    return callRemoteService()
+})</code></pre>
+
+    <h3><code>x/time/rate</code> 限流示例</h3>
+
+    <pre class="language-go"><code>import "golang.org/x/time/rate"
+
+// 每秒 100 个请求,突发上限 200
+limiter := rate.NewLimiter(100, 200)
+
+if !limiter.Allow() {
+    http.Error(w, "too many requests", http.StatusTooManyRequests)
+    return
+}</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">为什么熔断/限流要前置</span>
+      微服务中,慢的下游会把上游 goroutine / 线程全部阻塞住,造成<strong>雪崩</strong>。
+      熔断 + 限流 + 超时 + 重试 + 幂等,是分布式服务的「五件套」,缺一不可。
+    </div>
+
+    <h2 id="observability">6. 可观测性 (Observability)</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java 生态</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Logging</td><td>Logback, Log4j2</td><td>Zap, Logrus, Zerolog, 标准库 <code>log/slog</code></td></tr>
+        <tr><td>Metrics</td><td>Micrometer + Prometheus</td><td>Prometheus 客户端, OpenTelemetry</td></tr>
+        <tr><td>Tracing</td><td>Sleuth + Zipkin / Jaeger</td><td>OpenTelemetry, Jaeger 客户端</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Zap 日志示例</h3>
+
+    <pre class="language-go"><code>import "go.uber.org/zap"
+
+logger, _ := zap.NewProduction()
+defer logger.Sync()
+
+logger.Info("User logged in",
+    zap.Int64("user_id", 12345),
+    zap.String("ip", "192.168.1.1"),
+)</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  App[Go 服务] --> L[Zap / slog<br/>结构化日志]:::log
+  App --> M[Prometheus<br/>Metrics endpoint]:::metric
+  App --> T[OpenTelemetry SDK<br/>Trace SpanContext]:::trace
+
+  L --> ELK[(ELK / Loki)]
+  M --> Prom[(Prometheus + Grafana)]
+  T --> Jaeger[(Jaeger / Tempo)]
+
+  classDef log fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+  classDef metric fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef trace fill:#94e2d5,color:#11111b,stroke:#94e2d5;
+      </div>
+      <div class="diagram-caption">图 3 · 微服务可观测性三件套:Log / Metric / Trace</div>
+    </div>
+
+    <h2 id="data">7. 数据访问</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java 生态</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ORM</td><td>Hibernate, MyBatis, JPA</td><td>GORM, XORM, Ent, sqlc</td></tr>
+        <tr><td>数据库驱动</td><td>JDBC</td><td><code>database/sql</code> + 各数据库驱动</td></tr>
+        <tr><td>Redis 客户端</td><td>Jedis, Lettuce</td><td>go-redis, redigo</td></tr>
+      </tbody>
+    </table>
+
+    <h3>GORM 示例</h3>
+
+    <pre class="language-go"><code>import "gorm.io/gorm"
+
+type User struct {
+    gorm.Model
+    Name string
+    Age  int
+}
+
+var users []User
+db.Where("age > ?", 18).Find(&users)</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">sqlc 是另一种思路</span>
+      Go 圈子近年流行 <strong>sqlc</strong>:由 SQL 生成强类型 Go 代码,避免 ORM 的「反射魔法」与 N+1 问题。
+      对于性能敏感、复杂查询多的服务,sqlc 往往比 GORM 更合适。
+    </div>
+
+    <h2 id="mq">8. 消息队列</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java 生态</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Kafka</td><td>Spring Kafka, Apache Kafka 客户端</td><td>sarama, confluent-kafka-go</td></tr>
+        <tr><td>RabbitMQ</td><td>Spring AMQP</td><td>streadway/amqp</td></tr>
+        <tr><td>RocketMQ</td><td>RocketMQ 客户端</td><td>rocketmq-client-go</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="cache">9. 缓存</h2>
+
+    <table>
+      <thead>
+        <tr><th>功能</th><th>Java 生态</th><th>Go 生态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>本地缓存</td><td>Caffeine, Guava Cache</td><td>ristretto, bigcache, freecache</td></tr>
+        <tr><td>分布式缓存</td><td>Redis (Jedis/Lettuce)</td><td>go-redis, redigo</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="overall">10. 推荐选型 · 一图速查</h2>
+
+    <table>
+      <thead>
+        <tr><th>类别</th><th>推荐 Go 方案</th><th>选择理由</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Web 框架</td><td>Gin 或 Echo</td><td>性能好,生态成熟,中间件丰富</td></tr>
+        <tr><td>RPC</td><td>gRPC</td><td>跨语言、强类型、官方支持</td></tr>
+        <tr><td>配置管理</td><td>Viper</td><td>多源支持(yaml/env/远程),社区广泛</td></tr>
+        <tr><td>日志</td><td>Zap 或 <code>log/slog</code></td><td>结构化、零分配、高性能;slog 是标准库未来方向</td></tr>
+        <tr><td>ORM</td><td>GORM 或 sqlc / Ent</td><td>简单 CRUD 用 GORM,复杂查询用 sqlc</td></tr>
+        <tr><td>熔断器</td><td>gobreaker 或 sentinel-go</td><td>gobreaker 轻量,sentinel 功能丰富</td></tr>
+        <tr><td>可观测性</td><td>OpenTelemetry</td><td>统一规范,日志/Metric/Trace 一套 SDK</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="mental">11. 核心心智迁移</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">三句话总结</span>
+      <ul>
+        <li>Go 生态<strong>更倾向于小而美的库</strong>,而非大而全的框架</li>
+        <li><strong>标准库非常强大</strong>,优先考虑标准库(<code>net/http</code> / <code>database/sql</code> / <code>log/slog</code>)</li>
+        <li>依赖注入通常通过<strong>手动组合</strong>完成(在 <code>main</code> 里),而非框架自动注入</li>
+      </ul>
+    </div>
+
+    <div class="callout java">
+      <span class="callout-title">最常见的「Java 化 Go 微服务」反模式</span>
+      <ul>
+        <li>把 Gin 套上 N 层「Controller / Service / DAO」骨架,丢失了 Go 包按功能聚合的优势</li>
+        <li>狂用 <code>interface</code> 抽象,每个 struct 都强行实现 3 个接口,只为「将来可替换」</li>
+        <li>用 <code>reflect</code> 自研一套「Spring 风格 DI 容器」,然后陷入难以调试的反射地狱</li>
+        <li>把 <code>error</code> 全部转成 <code>panic</code> 然后顶层 <code>recover</code>,丢失错误链与上下文</li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="prev" href="./java_go_design_patterns.html">
+        <div class="label">← 上一篇</div>
+        <div class="title">Java/Go 设计模式</div>
+      </a>
+      <a class="next" href="../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">
+        <div class="label">开始正课 →</div>
+        <div class="title">Unit 1 · L0 Packages</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>2.3 Channel 底层原理 · Lesson 2 · Channel · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html" class="active">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_02_channel.html">L2 · Channel</a>
+      <span class="sep">/</span>
+      <span class="current">2.3 Channel 底层原理</span>
+    </nav>
+
+    <h1>2.3 Channel 底层原理 (hchan 与环形缓冲区)</h1>
+
+    <p>Channel 不是黑魔法。它在 Go 运行时里是一个老老实实的结构体 <code>hchan</code>(定义在 <code>runtime/chan.go</code>),里面包含一个环形缓冲区、两个等待队列和一把互斥锁。理解这套结构以后,你看 channel 的所有「奇怪行为」(无缓冲为啥同步、close 后还能读、为啥读零值)都会变得自然。</p>
+
+    <h2 id="hchan">1. hchan 结构体</h2>
+
+    <p>Go 运行时中的 <code>hchan</code> 是 channel 的真实形态:</p>
+
+    <pre class="language-go"><code>type hchan struct {
+    qcount   uint           // 当前缓冲区中的元素数量
+    dataqsiz uint           // 环形缓冲区的容量 (make 时指定)
+    buf      unsafe.Pointer // 指向环形缓冲区数组的指针 (无缓冲为 nil)
+    elemsize uint16         // 单个元素的大小 (字节)
+    closed   uint32         // 是否已关闭 (0=open, 1=closed)
+    elemtype *_type         // 元素类型 (用于反射、GC 扫描)
+    sendx    uint           // 下一次发送写入 buf 的索引
+    recvx    uint           // 下一次接收读取 buf 的索引
+    recvq    waitq          // 等待接收的 Goroutine 队列 (sudog 链表)
+    sendq    waitq          // 等待发送的 Goroutine 队列 (sudog 链表)
+    lock     mutex          // 保护以上所有字段的互斥锁
+}</code></pre>
+
+    <p>关键字段拆三类:</p>
+    <ul>
+      <li><strong>缓冲区相关</strong>(<code>buf</code> / <code>dataqsiz</code> / <code>qcount</code> / <code>sendx</code> / <code>recvx</code> / <code>elemsize</code>) — 描述「数据放哪里」。</li>
+      <li><strong>等待队列</strong>(<code>recvq</code> / <code>sendq</code>) — 描述「谁阻塞在我身上」。</li>
+      <li><strong>同步原语</strong>(<code>lock</code> / <code>closed</code>) — 保证所有操作互斥、可见。</li>
+    </ul>
+
+    <h2 id="svg-arch">2. hchan 内部结构图 (原生 SVG)</h2>
+
+    <p>下图把一个 <code>make(chan int, 4)</code> channel 拆开来看:中间是环形缓冲区(已写入 3 个、读了 1 个,所以队列里剩 2 个),左侧 <code>sendq</code> 排着两个被阻塞的发送方(因为缓冲区还没满,真实场景里这种情况通常发生在多生产者抢锁),右侧 <code>recvq</code> 排着等待接收的消费者。</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 920 520" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, sans-serif" font-size="13">
+        <defs>
+          <marker id="ch-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#89b4fa" />
+          </marker>
+          <marker id="ch-arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#f38ba8" />
+          </marker>
+          <marker id="ch-arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+            <path d="M0,0 L0,6 L8,3 z" fill="#a6e3a1" />
+          </marker>
+        </defs>
+
+        <rect x="0" y="0" width="920" height="520" fill="#1e1e2e" />
+
+        <!-- Title -->
+        <text x="460" y="26" fill="#cdd6f4" text-anchor="middle" font-size="15" font-weight="700">hchan 内部结构 · make(chan int, 4) · qcount=2</text>
+
+        <!-- hchan box -->
+        <rect x="40" y="56" width="840" height="80" rx="8" fill="#181825" stroke="#cba6f7" stroke-width="2" />
+        <text x="60" y="80" fill="#cba6f7" font-weight="700">hchan</text>
+
+        <!-- Fields inside hchan -->
+        <rect x="120" y="68" width="110" height="56" rx="4" fill="#11111b" stroke="#45475a" />
+        <text x="175" y="86" fill="#fab387" text-anchor="middle" font-size="11" font-weight="700">qcount=2</text>
+        <text x="175" y="102" fill="#cdd6f4" text-anchor="middle" font-size="11">dataqsiz=4</text>
+        <text x="175" y="118" fill="#cdd6f4" text-anchor="middle" font-size="11">elemsize=8</text>
+
+        <rect x="240" y="68" width="110" height="56" rx="4" fill="#11111b" stroke="#45475a" />
+        <text x="295" y="86" fill="#a6e3a1" text-anchor="middle" font-size="11" font-weight="700">sendx=3</text>
+        <text x="295" y="102" fill="#94e2d5" text-anchor="middle" font-size="11">recvx=1</text>
+        <text x="295" y="118" fill="#cdd6f4" text-anchor="middle" font-size="11">closed=0</text>
+
+        <rect x="360" y="68" width="110" height="56" rx="4" fill="#11111b" stroke="#45475a" />
+        <text x="415" y="86" fill="#89b4fa" text-anchor="middle" font-size="11" font-weight="700">buf →</text>
+        <text x="415" y="102" fill="#cdd6f4" text-anchor="middle" font-size="11">elemtype</text>
+        <text x="415" y="118" fill="#cdd6f4" text-anchor="middle" font-size="11">(*_type)</text>
+
+        <rect x="480" y="68" width="180" height="56" rx="4" fill="#11111b" stroke="#45475a" />
+        <text x="570" y="86" fill="#f38ba8" text-anchor="middle" font-size="11" font-weight="700">recvq (waitq)</text>
+        <text x="570" y="102" fill="#cdd6f4" text-anchor="middle" font-size="11">sendq (waitq)</text>
+        <text x="570" y="118" fill="#cdd6f4" text-anchor="middle" font-size="11">lock (mutex)</text>
+
+        <text x="700" y="98" fill="#a6adc8" font-size="11">所有字段都在一把 mutex 保护下</text>
+
+        <!-- Ring buffer -->
+        <text x="460" y="170" fill="#fab387" text-anchor="middle" font-weight="700" font-size="14">buf (环形缓冲区, dataqsiz=4)</text>
+
+        <!-- 4 slots arranged in a ring -->
+        <rect x="350" y="190" width="80" height="60" rx="6" fill="#11111b" stroke="#6c7086" stroke-width="2" />
+        <text x="390" y="208" fill="#6c7086" text-anchor="middle" font-size="11">slot[0]</text>
+        <text x="390" y="228" fill="#6c7086" text-anchor="middle" font-size="13" font-weight="700">(已读)</text>
+        <text x="390" y="244" fill="#6c7086" text-anchor="middle" font-size="11">空</text>
+
+        <rect x="450" y="190" width="80" height="60" rx="6" fill="#11111b" stroke="#a6e3a1" stroke-width="2" />
+        <text x="490" y="208" fill="#a6e3a1" text-anchor="middle" font-size="11" font-weight="700">slot[1] ← recvx</text>
+        <text x="490" y="228" fill="#cdd6f4" text-anchor="middle" font-size="13" font-weight="700">42</text>
+        <text x="490" y="244" fill="#a6e3a1" text-anchor="middle" font-size="11">下次读这里</text>
+
+        <rect x="550" y="190" width="80" height="60" rx="6" fill="#11111b" stroke="#a6e3a1" stroke-width="2" />
+        <text x="590" y="208" fill="#cdd6f4" text-anchor="middle" font-size="11">slot[2]</text>
+        <text x="590" y="228" fill="#cdd6f4" text-anchor="middle" font-size="13" font-weight="700">99</text>
+        <text x="590" y="244" fill="#cdd6f4" text-anchor="middle" font-size="11">已写入</text>
+
+        <rect x="650" y="190" width="80" height="60" rx="6" fill="#11111b" stroke="#fab387" stroke-width="2" />
+        <text x="690" y="208" fill="#fab387" text-anchor="middle" font-size="11" font-weight="700">slot[3] ← sendx</text>
+        <text x="690" y="228" fill="#cdd6f4" text-anchor="middle" font-size="13" font-weight="700">(空)</text>
+        <text x="690" y="244" fill="#fab387" text-anchor="middle" font-size="11">下次写这里</text>
+
+        <!-- Ring arrow showing wrap-around -->
+        <path d="M 730 220 Q 800 220 800 280 Q 800 340 460 340 Q 380 340 350 280 Q 320 230 350 220"
+              fill="none" stroke="#cba6f7" stroke-width="1.5" stroke-dasharray="4 3" />
+        <text x="540" y="335" fill="#cba6f7" text-anchor="middle" font-size="11">索引到达末尾后模 dataqsiz 绕回 0 (环形)</text>
+
+        <!-- buf pointer arrow -->
+        <line x1="415" y1="124" x2="390" y2="188" stroke="#89b4fa" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ch-arrow)" />
+
+        <!-- sendq -->
+        <rect x="40" y="380" width="280" height="120" rx="8" fill="#181825" stroke="#f38ba8" stroke-width="2" />
+        <text x="180" y="402" fill="#f38ba8" text-anchor="middle" font-weight="700">sendq · 阻塞的发送方</text>
+        <text x="180" y="418" fill="#a6adc8" text-anchor="middle" font-size="11">sudog 链表 (FIFO)</text>
+
+        <rect x="60" y="430" width="100" height="50" rx="4" fill="#11111b" stroke="#f38ba8" />
+        <text x="110" y="448" fill="#f38ba8" text-anchor="middle" font-size="11" font-weight="700">sudog G_s1</text>
+        <text x="110" y="465" fill="#cdd6f4" text-anchor="middle" font-size="11">elem=v1</text>
+        <text x="110" y="478" fill="#a6adc8" text-anchor="middle" font-size="10">park 中</text>
+
+        <rect x="180" y="430" width="100" height="50" rx="4" fill="#11111b" stroke="#f38ba8" />
+        <text x="230" y="448" fill="#f38ba8" text-anchor="middle" font-size="11" font-weight="700">sudog G_s2</text>
+        <text x="230" y="465" fill="#cdd6f4" text-anchor="middle" font-size="11">elem=v2</text>
+        <text x="230" y="478" fill="#a6adc8" text-anchor="middle" font-size="10">park 中</text>
+
+        <line x1="160" y1="455" x2="178" y2="455" stroke="#f38ba8" stroke-width="2" marker-end="url(#ch-arrow-red)" />
+
+        <!-- recvq -->
+        <rect x="600" y="380" width="280" height="120" rx="8" fill="#181825" stroke="#a6e3a1" stroke-width="2" />
+        <text x="740" y="402" fill="#a6e3a1" text-anchor="middle" font-weight="700">recvq · 阻塞的接收方</text>
+        <text x="740" y="418" fill="#a6adc8" text-anchor="middle" font-size="11">sudog 链表 (FIFO)</text>
+
+        <rect x="620" y="430" width="100" height="50" rx="4" fill="#11111b" stroke="#a6e3a1" />
+        <text x="670" y="448" fill="#a6e3a1" text-anchor="middle" font-size="11" font-weight="700">sudog G_r1</text>
+        <text x="670" y="465" fill="#cdd6f4" text-anchor="middle" font-size="11">elem=&amp;dst1</text>
+        <text x="670" y="478" fill="#a6adc8" text-anchor="middle" font-size="10">park 中</text>
+
+        <rect x="740" y="430" width="100" height="50" rx="4" fill="#11111b" stroke="#a6e3a1" />
+        <text x="790" y="448" fill="#a6e3a1" text-anchor="middle" font-size="11" font-weight="700">sudog G_r2</text>
+        <text x="790" y="465" fill="#cdd6f4" text-anchor="middle" font-size="11">elem=&amp;dst2</text>
+        <text x="790" y="478" fill="#a6adc8" text-anchor="middle" font-size="10">park 中</text>
+
+        <line x1="720" y1="455" x2="738" y2="455" stroke="#a6e3a1" stroke-width="2" marker-end="url(#ch-arrow-green)" />
+
+        <!-- send/recv operation arrows pointing to buf -->
+        <path d="M 220 380 Q 280 320 380 250" fill="none" stroke="#f38ba8" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ch-arrow-red)" />
+        <text x="260" y="350" fill="#f38ba8" font-size="11" font-weight="700">sender 拿锁 → 写 sendx → qcount++ → unpark recvq</text>
+
+        <path d="M 700 380 Q 640 320 540 250" fill="none" stroke="#a6e3a1" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ch-arrow-green)" />
+        <text x="760" y="370" fill="#a6e3a1" font-size="11" font-weight="700" text-anchor="end">receiver 读 recvx → qcount-- → unpark sendq</text>
+      </svg>
+      <div class="diagram-caption">图 · hchan 内部结构: 环形缓冲区由 sendx / recvx 双索引驱动, 模 dataqsiz 绕回。发送方在缓冲区满时进 sendq 沉睡, 接收方在缓冲区空时进 recvq 沉睡, 整个结构由一把 mutex 串行化保护。</div>
+    </div>
+
+    <h2 id="ring-buffer">3. 环形缓冲区是怎么转的?</h2>
+
+    <p><code>sendx</code> 和 <code>recvx</code> 是两个游标,每次操作只前进一步,然后<strong>模 dataqsiz 绕回</strong>(<code>sendx = (sendx + 1) % dataqsiz</code>)。这就避免了「数组前半段空了要往左挪」的搬家成本。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  subgraph BUF["buf [dataqsiz=4]"]
+    direction LR
+    S0["slot 0"]
+    S1["slot 1"]
+    S2["slot 2"]
+    S3["slot 3"]
+    S0 --> S1 --> S2 --> S3 -.绕回.-> S0
+  end
+  R["recvx 接收游标"] -.读.-> S1
+  W["sendx 发送游标"] -.写.-> S3
+      </div>
+      <div class="diagram-caption">图 · 双游标驱动环形缓冲区。两个游标会自然「追逐」,sendx 追上 recvx 表示满,recvx 追上 sendx 表示空。</div>
+    </div>
+
+    <p>容量判断:</p>
+    <ul>
+      <li><strong>缓冲区空</strong>(可读不可写阻塞): <code>qcount == 0</code> ⇒ 接收方进 <code>recvq</code> 阻塞。</li>
+      <li><strong>缓冲区满</strong>(可写不可读阻塞): <code>qcount == dataqsiz</code> ⇒ 发送方进 <code>sendq</code> 阻塞。</li>
+    </ul>
+
+    <h2 id="unbuffered">4. 无缓冲 channel 与 hand-off 优化</h2>
+
+    <p>无缓冲 channel(<code>make(chan int)</code>)的 <code>buf == nil</code>、<code>dataqsiz == 0</code>。它根本没有环形缓冲区——所有发送/接收都必须配对完成,这就是「同步语义」的来源。</p>
+
+    <p>更巧妙的是: 即使是有缓冲的 channel,如果发送时 <code>recvq</code> 里已经有等待者,运行时会<strong>跳过缓冲区</strong>,直接把数据从发送方的栈拷贝到接收方的栈,然后把接收方唤醒——这就是 <strong>hand-off 优化</strong>,省去了一次内存拷贝。</p>
+
+    <div class="callout note">
+      <span class="callout-title">三种路径,运行时按情况走</span>
+      <ul style="margin:8px 0 0 0">
+        <li><strong>有等待接收方</strong> → 直接 hand-off 拷贝到对方栈,跳过 buf。</li>
+        <li><strong>缓冲区有空位</strong> → 写入 <code>buf[sendx]</code>,<code>sendx</code> 推进,<code>qcount++</code>。</li>
+        <li><strong>缓冲区满 / 无缓冲且无接收方</strong> → 把自己包成 <code>sudog</code> 挂到 <code>sendq</code>,调用 <code>gopark</code> 进入 <code>Gwaiting</code>。</li>
+      </ul>
+    </div>
+
+    <h2 id="java-compare">5. Java 与 Go 的对比</h2>
+
+    <table>
+      <thead><tr><th>特性</th><th>Java BlockingQueue</th><th>Go Channel (hchan)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>底层实现</strong></td><td>对象 + <code>ReentrantLock</code> + <code>Condition</code></td><td><code>hchan</code> 结构 + 环形缓冲区 + park/ready</td></tr>
+        <tr><td><strong>锁粒度</strong></td><td>一把 ReentrantLock 保护整个队列</td><td>一把 runtime mutex 保护整个 hchan</td></tr>
+        <tr><td><strong>等待方式</strong></td><td>线程进入 OS 级 wait (park())</td><td>Goroutine 进入 Gwaiting,M 释放去跑别的 G</td></tr>
+        <tr><td><strong>同步队列</strong></td><td><code>SynchronousQueue</code> = TransferQueue</td><td>无缓冲 channel = buf=nil 直接 hand-off</td></tr>
+        <tr><td><strong>性能</strong></td><td>较高,但每次阻塞要 OS 切线程</td><td>极高,park 不切线程</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout java">
+      <span class="callout-title">心智迁移要点</span>
+      Java 的 BlockingQueue 是「线程级阻塞」——线程真的会 <code>park()</code>,OS 调度切走。<br/>
+      Go 的 channel 是「Goroutine 级阻塞」——M (OS 线程) 不会被阻塞,它会去 P 的本地队列里捞下一个 G 跑。所以 Go 可以毫无压力地让 10 万个 Goroutine 阻塞在 channel 上,Java 让 10 万个线程阻塞在 BlockingQueue 上直接 OOM。
+    </div>
+
+    <h2 id="examples">6. 可运行代码示例</h2>
+
+    <h3>示例 1: 观察无缓冲 channel 的同步行为</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch := make(chan int)
+
+    go func() {
+        fmt.Println("Goroutine: 准备发送")
+        ch &lt;- 42                       // buf=nil, 没接收者 → 进 sendq, park
+        fmt.Println("Goroutine: 发送完成") // 直到接收方拷贝完才返回
+    }()
+
+    fmt.Println("Main: 等待 1 秒...")
+    time.Sleep(1 * time.Second)
+    fmt.Println("Main: 开始接收")
+    val := &lt;-ch                       // 唤醒 sendq 里的 G, 数据从对方栈拷贝过来
+    fmt.Printf("Main: 接收到 %d\n", val)
+}</code></pre>
+
+    <p><strong>观察</strong>: 「Goroutine: 发送完成」会在「Main: 开始接收」之后打印,正好印证了 sendq 阻塞 → 接收方到来 → hand-off 拷贝 → 唤醒 sender 的全过程。</p>
+
+    <h3>示例 2: 观察有缓冲 channel 的环形缓冲</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch := make(chan int, 2) // dataqsiz=2
+
+    go func() {
+        fmt.Println("Goroutine: 发送 1") // qcount: 0→1, sendx: 0→1
+        ch &lt;- 1
+        fmt.Println("Goroutine: 发送 2") // qcount: 1→2, sendx: 1→0 (绕回)
+        ch &lt;- 2
+        fmt.Println("Goroutine: 发送 3 (会阻塞)") // qcount==dataqsiz, 进 sendq, park
+        ch &lt;- 3
+        fmt.Println("Goroutine: 发送 3 完成") // 等 Main 收一个之后才被唤醒
+    }()
+
+    fmt.Println("Main: 等待 1 秒...")
+    time.Sleep(1 * time.Second)
+    fmt.Println("Main: 接收 1:", &lt;-ch) // 唤醒 sendq 里的发送方
+    fmt.Println("Main: 接收 2:", &lt;-ch)
+    fmt.Println("Main: 接收 3:", &lt;-ch)
+}</code></pre>
+
+    <p><strong>观察</strong>: 发送 1、2 立即完成(进缓冲),发送 3 因为缓冲区满会阻塞,Main 接收一个之后才会被 unpark。</p>
+
+    <h2 id="pitfalls">7. 生产环境坑点</h2>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 1: 认为「有缓冲 channel 永远非阻塞」</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>ch := make(chan int, 2)
+ch &lt;- 1   // qcount=1
+ch &lt;- 2   // qcount=2 = dataqsiz
+ch &lt;- 3   // 阻塞! 进 sendq</code></pre>
+      缓冲只是「能缓多少」,容量一到马上回到无缓冲一样的阻塞语义。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2: 忽略 close 后接收零值</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>ch := make(chan int)
+close(ch)
+val := &lt;-ch   // val == 0, 不会 panic
+
+// 正确用 comma-ok 区分零值与关闭
+val, ok := &lt;-ch
+if !ok {
+    fmt.Println("channel 已关闭")
+}</code></pre>
+      close 后 <code>recvq</code> 里所有等待者会被一次性唤醒,每个都收到零值;<code>buf</code> 里还没读完的数据仍能被收到,直到 <code>qcount==0</code> 才进入 closed 零值阶段。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3: 滥用大缓冲区掩盖问题</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>// 不推荐: 缓冲区过大, 内存占用 + 隐藏背压问题
+ch := make(chan int, 1_000_000)</code></pre>
+      hchan 的 <code>buf</code> 在 make 时一次性分配 <code>elemsize * dataqsiz</code> 字节内存。
+      大缓冲会掩盖「生产快于消费」的背压问题,把内存压力推到不可观测的位置。
+      没有特殊需求时,先用无缓冲或个位数缓冲。
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 4: close 已关闭 channel / close nil channel</span>
+      运行时直接 panic:<code>close of closed channel</code> 或 <code>close of nil channel</code>。
+      规则:<strong>只有发送方 / 唯一 owner 才能 close,且只 close 一次</strong>。多生产者场景请用 <code>sync.Once</code> 或上层的 done channel 协调。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li><strong>容量概念题</strong>:无缓冲 channel 和「容量为 0 的有缓冲 channel」有区别吗?查看 <code>make(chan int, 0)</code> 的 <code>hchan.buf</code> 应该是什么值?</li>
+      <li><strong>环形缓冲区</strong>:画图说明 <code>sendx</code> 和 <code>recvx</code> 各自的作用,以及它们如何避免环形缓冲区「队头空洞」问题。</li>
+      <li><strong>行为观察</strong>:写一个程序,用 <code>time.Sleep</code> 控制时序,清晰展示无缓冲 channel 的同步特性和有缓冲 channel 的缓冲特性。注释中标注每一步对应的 hchan 字段变化。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./02_channel_patterns.html">
+        <div class="label">← 上一页</div>
+        <div class="title">2.2 Channel 模式</div>
+      </a>
+      <a class="next" href="../lesson_03_select/lesson_03_select.html">
+        <div class="label">下一页 →</div>
+        <div class="title">L3 · Select</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

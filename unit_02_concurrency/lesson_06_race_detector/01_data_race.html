@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>6.1 什么是数据竞争 · Lesson 6 · Race Detector · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html" class="active">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_06_race_detector.html">L6 · Race Detector</a>
+      <span class="sep">/</span>
+      <span class="current">6.1 什么是数据竞争</span>
+    </nav>
+
+    <h1>6.1 什么是数据竞争 (Data Race)</h1>
+
+    <p>Go Memory Model 的形式定义:<em>「A data race occurs when two memory accesses concur, at least one is a write, and they are not ordered by a happens-before relation.」</em></p>
+
+    <p>翻译成人话:<strong>两个 Goroutine 同时访问同一块内存,且至少有一个是写操作,中间又没有用锁 / channel / atomic 建立明确的先后关系,就发生了数据竞争。</strong></p>
+
+    <h2 id="def">1. 一个最经典的例子</h2>
+
+    <pre class="language-go"><code>var counter int
+
+// G1
+go func() { counter++ }()  // 读 counter, +1, 写回(三步)
+
+// G2
+go func() { counter++ }()  // 同样三步
+
+// counter++ 不是原子的!
+// 在汇编层面:
+//   MOV  rax, [counter]
+//   INC  rax
+//   MOV  [counter], rax</code></pre>
+
+    <h3>Lost Update · 丢失更新的真实时序</h3>
+
+    <p>下面的 sequenceDiagram 展示两个 G 并发执行 <code>counter++</code> 时,如何「一起读到 0、一起算出 1、一起写回 1」,结果两次累加只剩一次效果。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  autonumber
+  participant G1 as Goroutine 1
+  participant MEM as 共享变量<br/>counter
+  participant G2 as Goroutine 2
+
+  Note over MEM: counter = 0
+  G1->>MEM: ① LOAD counter → r1=0
+  G2->>MEM: ② LOAD counter → r2=0
+  Note over G1,G2: 两个 G 都读到了 0!
+  G1->>G1: ③ r1 = r1 + 1 → r1=1
+  G2->>G2: ④ r2 = r2 + 1 → r2=1
+  G1->>MEM: ⑤ STORE counter ← 1
+  G2->>MEM: ⑥ STORE counter ← 1
+  Note over MEM: counter = 1<br/>(预期 2 · 丢失 1 次更新!)
+      </div>
+      <div class="diagram-caption">图 · Lost Update:两个 Goroutine 交错执行 counter++,两次 +1 最后只产生 +1 效果</div>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">数据竞争 ≠ 偶发 bug</span>
+      上面的时序<strong>必然会在某些调度下出现</strong>。你本地跑可能 99% 看起来「对」,因为 G1 大概率全部跑完才轮到 G2;但生产高并发 + 多核环境下,这种交错每秒发生上万次。
+    </div>
+
+    <h2 id="harm">2. 为什么数据竞争这么危险</h2>
+
+    <table>
+      <thead><tr><th>危害</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>结果不确定</strong></td><td>计数对不上、累加丢失、读到中间态</td></tr>
+        <tr><td><strong>内存撕裂(torn write)</strong></td><td>非对齐 64 位写 / interface header 的两个字 / slice header 三字段,可能只更新一半</td></tr>
+        <tr><td><strong>直接 panic</strong></td><td>原生 map 并发读写 → <code>fatal error: concurrent map writes</code>(不可 recover)</td></tr>
+        <tr><td><strong>难以复现</strong></td><td>依赖具体调度时序,生产偶发,本地测不出</td></tr>
+        <tr><td><strong>跨函数污染</strong></td><td>未初始化的指针 / 半初始化对象被别的 G 看到,触发 nil deref / 业务逻辑错乱</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout danger">
+      <span class="callout-title">Go 的 map 并发读写 = 必 panic</span>
+      Go runtime 在 map 操作内部加了「写并发检测」——一旦发现两个 G 同时写,直接 <code>fatal error</code> 退出进程(不会被 recover 捕获)。这是 Go 强烈劝阻你用裸 map 做共享态的方式。
+    </div>
+
+    <h2 id="common-scenarios">3. 三个最常见的踩坑场景</h2>
+
+    <h3>场景 A · 共享计数器</h3>
+    <pre class="language-go"><code>var counter int
+for i := 0; i &lt; 1000; i++ {
+    go func() { counter++ }()  // ❌ data race
+}</code></pre>
+
+    <h3>场景 B · map 并发读写</h3>
+    <pre class="language-go"><code>var m = make(map[string]string)
+go func() { m["k"] = "v" }()       // 写
+fmt.Println(m["k"])                // 读
+// ❌ 大概率 panic: concurrent map read and map write</code></pre>
+
+    <h3>场景 C · slice append 并发</h3>
+    <pre class="language-go"><code>var s []int
+go func() { s = append(s, 1) }()  // 可能触发底层数组扩容 + 替换 header
+fmt.Println(s[0])                 // ❌ 可能读到旧 header 指向被释放的数组</code></pre>
+
+    <h2 id="java-compare">4. Java 对照:JMM 中的数据竞争</h2>
+
+    <table>
+      <thead><tr><th>维度</th><th>Java</th><th>Go</th></tr></thead>
+      <tbody>
+        <tr><td>问题存在性</td><td>同样存在</td><td>同样存在</td></tr>
+        <tr><td>内存模型</td><td>Java Memory Model (JMM)</td><td>Go Memory Model</td></tr>
+        <tr><td>happens-before</td><td>有明确定义 (JLS §17.4)</td><td>有明确定义 (Go spec)</td></tr>
+        <tr><td>非原子读写</td><td>对 <code>long / double</code> 非 volatile 读写允许撕裂</td><td>对 64 位非对齐字段允许撕裂</td></tr>
+        <tr><td>检测工具</td><td>外部:ThreadSanitizer / Helgrind / FindBugs / SpotBugs</td><td>内置 <code>-race</code></td></tr>
+        <tr><td>常见可见性 bug</td><td>忘加 <code>volatile</code> 导致看到旧值</td><td>忘加锁 / atomic 导致同样问题</td></tr>
+      </tbody>
+    </table>
+
+    <pre class="language-java"><code>// Java 同样的 Lost Update 例子
+public class Counter {
+    private static int count = 0;
+
+    public static void main(String[] args) throws InterruptedException {
+        Thread t1 = new Thread(() -&gt; {
+            for (int i = 0; i &lt; 10000; i++) count++;
+        });
+        Thread t2 = new Thread(() -&gt; {
+            for (int i = 0; i &lt; 10000; i++) count++;
+        });
+        t1.start(); t2.start();
+        t1.join();  t2.join();
+        System.out.println("Count: " + count);  // 不一定是 20000
+    }
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java <code>volatile</code> vs Go atomic</span>
+      Java <code>volatile</code> 解决「可见性 + 禁止重排序」,但<strong>不保证复合操作原子</strong>——<code>volatile int x; x++;</code> 仍然有竞争。等价于 Go 的:用 <code>atomic.Load/Store</code> 解决可见性,但 <code>x = atomic.Load + 1; atomic.Store</code> 依然有 race;真要原子自增必须用 <code>atomic.Add</code> 或 CAS 循环。
+    </div>
+
+    <h2 id="run-detect">5. 用 race detector 看一眼</h2>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    var counter int
+    var wg sync.WaitGroup
+    for i := 0; i &lt; 1000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            counter++ // race
+        }()
+    }
+    wg.Wait()
+    fmt.Println("Counter:", counter)
+}</code></pre>
+
+    <pre class="language-bash"><code>go run -race main.go</code></pre>
+
+    <pre class="language-bash"><code>WARNING: DATA RACE
+Write at 0x00c0000... by goroutine 7:
+  main.main.func1()
+      .../main.go:12 +0x3a
+
+Previous write at 0x00c0000... by goroutine 6:
+  main.main.func1()
+      .../main.go:12 +0x3a
+
+Goroutine 7 (running) created at:
+  main.main()
+      .../main.go:11 +0x9d
+==================
+Counter: 996</code></pre>
+
+    <p>下一节(<a href="./02_race_detector.html">6.2</a>)我们详细讲 race detector 是怎么工作的、如何解读这段输出。</p>
+
+    <h2 id="pitfalls">6. 生产环境坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1:以为「单次写 + 多次读」是安全的</span>
+<pre class="language-go" style="margin: 8px 0 0 0"><code>var config string
+
+go func() {
+    config = loadFromRemote()   // 写一次
+}()
+
+fmt.Println(config)             // 多次读,看起来「只读不写不会乱吧?」</code></pre>
+      <strong>仍然是 data race</strong>。没有 happens-before 时,读侧可能看到部分更新的字符串 header、或永远看不到新值(被 CPU cache 卡住)。
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 2:map 并发读写 = 必 panic</span>
+<pre class="language-go" style="margin: 8px 0 0 0"><code>var m = make(map[string]string)
+go func() { m["k"] = "v" }()
+fmt.Println(m["k"])
+// fatal error: concurrent map read and map write</code></pre>
+      不可恢复,直接进程退出。改用 <code>sync.Map</code> 或 <code>RWMutex+map</code>。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3:slice 并发 append 看似只「写」一个变量,实际危险</span>
+      <code>s = append(s, x)</code> 由三个字段(ptr/len/cap)的写组成。并发 append 可能扩容后 ptr 指向旧底层数组,产生丢数据 / 看到中间态。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+
+    <h3>练习 1.1 · 找出所有 race 点</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "sync"
+    "time"
+)
+
+type User struct {
+    Name string
+    Age  int
+}
+
+var user *User
+
+func main() {
+    var wg sync.WaitGroup
+
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        time.Sleep(100 * time.Millisecond)
+        user = &amp;User{Name: "Alice", Age: 30}
+    }()
+
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        if user != nil {
+            println("User:", user.Name)
+        }
+    }()
+
+    wg.Wait()
+}</code></pre>
+
+    <p>验收标准:</p>
+    <ul>
+      <li>说出全部 race 点(共享变量 <code>user</code> 的读写)</li>
+      <li>解释为什么 <code>time.Sleep</code> 不能建立 happens-before 关系</li>
+      <li>列举可能的具体问题(读到 nil / 读到半初始化对象 / cache 不同步)</li>
+    </ul>
+
+    <h3>练习 1.2 · 概念题</h3>
+    <ol>
+      <li>什么是数据竞争?为什么哪怕你的程序「看起来对了一次」也不能认为它正确?</li>
+      <li>Go Memory Model 中的「happens-before」关系到底意味着什么?给出 3 个建立 happens-before 的方式。</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_06_race_detector.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L6 总览</div>
+      </a>
+      <a class="next" href="./02_race_detector.html">
+        <div class="label">下一页 →</div>
+        <div class="title">6.2 · race detector 用法</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

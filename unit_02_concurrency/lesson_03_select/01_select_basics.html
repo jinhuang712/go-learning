@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>3.1 select 基础 · Lesson 3 · Select · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html" class="active">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_03_select.html">L3 · Select</a>
+      <span class="sep">/</span>
+      <span class="current">3.1 select 基础</span>
+    </nav>
+
+    <h1>3.1 select 基础</h1>
+
+    <p><code>select</code> 长得像 <code>switch</code>,但骨子里完全不一样——它专门用来同时等待多个 channel 操作,哪个先就绪就跑哪一个。<strong>它是 Go 唯一能在语法层做多路复用的语句</strong>,所有「超时、退出、合并多个数据源」的模式都从它衍生。</p>
+
+    <h2 id="syntax">1. select 语法</h2>
+
+    <pre class="language-go"><code>select {
+case &lt;-ch1:
+    // 从 ch1 接收数据
+case ch2 &lt;- val:
+    // 向 ch2 发送数据
+case v, ok := &lt;-ch3:
+    // 带 comma-ok 的接收
+default:
+    // 所有 case 都阻塞时执行 (可选)
+}</code></pre>
+
+    <p>每个 <code>case</code> 必须是一个 channel 操作(send 或 recv),不能是任意表达式——这是和 <code>switch</code> 最大的区别。</p>
+
+    <h2 id="rules">2. 三条核心规则</h2>
+
+    <ol>
+      <li><strong>有就绪 case</strong> → 选一个执行。多个同时就绪时<strong>伪随机</strong>挑一个,避免某条 channel「霸占」。</li>
+      <li><strong>没有就绪 case + 有 default</strong> → 立刻跑 default,不阻塞(<em>非阻塞 select 模式</em>)。</li>
+      <li><strong>没有就绪 case + 无 default</strong> → 当前 Goroutine 进入 <code>Gwaiting</code>,挂在所有 case 涉及的 channel 的等待队列上,直到任一就绪。</li>
+    </ol>
+
+    <h2 id="multi-listen">3. 多 channel 监听时序图</h2>
+
+    <p>下面这张时序图展示了 select 同时挂三个 channel,只要任一就绪就唤醒并选择执行的过程:</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant M as main G (select)
+    participant C1 as ch1
+    participant C2 as ch2
+    participant C3 as ch3
+    participant P1 as producer 1
+    participant P2 as producer 2
+
+    M->>C1: 注册 recv 监听
+    M->>C2: 注册 recv 监听
+    M->>C3: 注册 recv 监听
+    Note over M: 全部 case 阻塞<br/>gopark → Gwaiting
+
+    P1->>C2: send "data2"
+    C2-->>M: 唤醒 (case ch2 就绪)
+    Note over M: 运行时检查其它 case<br/>只有 ch2 就绪 → 选中
+
+    M->>M: 执行 case <-ch2 分支
+    Note over M: 从 ch1/ch3 等待队列<br/>摘除 sudog (cleanup)
+
+    P2->>C1: send "data1" (太晚)
+    Note over C1: 没人在监听 ch1,<br/>进入 ch1.sendq 或 buf
+      </div>
+      <div class="diagram-caption">图 · select 多 channel 监听: G 同时挂在多个 channel 等待队列,任一就绪即被唤醒,选中后清理其它 channel 上的 sudog。</div>
+    </div>
+
+    <h2 id="random">4. 为什么要随机选择?</h2>
+
+    <p>如果多个 case 同时就绪,select <strong>伪随机</strong>挑一个执行——这是刻意设计,不是 bug。原因有两个:</p>
+
+    <ul>
+      <li><strong>避免饥饿</strong>:如果按代码书写顺序选,排在前面的 channel 永远优先,后面的可能永远轮不上。</li>
+      <li><strong>避免依赖顺序写代码</strong>:你不能假设「上面那行更优先」,这种隐式优先级会随重构而漂移。如果真需要优先级,自己用嵌套 select + default 实现。</li>
+    </ul>
+
+    <h2 id="java-compare">5. Java 与 Go 的对比</h2>
+
+    <table>
+      <thead><tr><th>特性</th><th>Java</th><th>Go</th></tr></thead>
+      <tbody>
+        <tr><td><strong>多路复用</strong></td><td><code>java.nio.channels.Selector</code></td><td><code>select</code> 语句</td></tr>
+        <tr><td><strong>使用方式</strong></td><td>注册 Channel 到 Selector,调用 <code>select()</code></td><td>直接在语法层使用</td></tr>
+        <tr><td><strong>阻塞方式</strong></td><td><code>selector.select()</code> 阻塞直到有事件</td><td>select 阻塞直到有 case 就绪</td></tr>
+        <tr><td><strong>多个就绪选择</strong></td><td>按 SelectionKey 集合遍历</td><td>伪随机挑一个</td></tr>
+        <tr><td><strong>适用范围</strong></td><td>仅网络 IO (SocketChannel 等)</td><td>任意 channel</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Java NIO Selector 写法</h3>
+
+    <pre class="language-java"><code>import java.nio.channels.*;
+import java.util.Iterator;
+
+public class NioSelectorExample {
+    public static void main(String[] args) throws Exception {
+        Selector selector = Selector.open();
+
+        SocketChannel ch1 = SocketChannel.open();
+        ch1.configureBlocking(false);
+        ch1.register(selector, SelectionKey.OP_READ);
+
+        SocketChannel ch2 = SocketChannel.open();
+        ch2.configureBlocking(false);
+        ch2.register(selector, SelectionKey.OP_READ);
+
+        while (true) {
+            selector.select(); // 阻塞直到有事件
+            Iterator&lt;SelectionKey&gt; keys = selector.selectedKeys().iterator();
+
+            while (keys.hasNext()) {
+                SelectionKey key = keys.next();
+                if (key.isReadable()) {
+                    // 处理可读事件
+                }
+                keys.remove();
+            }
+        }
+    }
+}</code></pre>
+
+    <h3>Go select 等价写法</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    go func() {
+        time.Sleep(100 * time.Millisecond)
+        ch1 &lt;- "来自 Channel 1"
+    }()
+
+    go func() {
+        time.Sleep(200 * time.Millisecond)
+        ch2 &lt;- "来自 Channel 2"
+    }()
+
+    for i := 0; i &lt; 2; i++ {
+        select {
+        case msg1 := &lt;-ch1:
+            fmt.Println("收到:", msg1)
+        case msg2 := &lt;-ch2:
+            fmt.Println("收到:", msg2)
+        }
+    }
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">心智迁移要点</span>
+      <ul style="margin:8px 0 0 0">
+        <li>Java 的 Selector 是<strong>类库</strong>,Go 的 select 是<strong>语法</strong>——后者使用门槛低、组合性强。</li>
+        <li>Java 事件按注册顺序处理,Go 多就绪 case 伪随机选,反而避免了饥饿。</li>
+        <li>Java NIO 主要服务网络编程,Go select 服务<strong>所有</strong> channel 场景:超时、退出、fan-in 都靠它。</li>
+      </ul>
+    </div>
+
+    <h2 id="examples">6. 可运行代码示例</h2>
+
+    <h3>错误写法: 忘记 select 也会阻塞</h3>
+
+    <pre class="language-go"><code>// 错误! 没有 default,且没人发送,会永远阻塞 (死锁)
+ch := make(chan int)
+select {
+case &lt;-ch:
+    fmt.Println("收到数据")
+}</code></pre>
+
+    <h3>正确写法 1: 使用 default 实现非阻塞</h3>
+
+    <pre class="language-go"><code>ch := make(chan int)
+select {
+case &lt;-ch:
+    fmt.Println("收到数据")
+default:
+    fmt.Println("没有数据就绪")
+}</code></pre>
+
+    <h3>正确写法 2: 确保有 case 会就绪</h3>
+
+    <pre class="language-go"><code>ch := make(chan int, 1)
+ch &lt;- 42
+select {
+case val := &lt;-ch:
+    fmt.Println("收到:", val)
+}</code></pre>
+
+    <h3>随机选择示例</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "time"
+)
+
+func main() {
+    ch1 := make(chan string)
+    ch2 := make(chan string)
+
+    // 两个 Goroutine 同时发送数据
+    go func() {
+        time.Sleep(50 * time.Millisecond)
+        ch1 &lt;- "A"
+    }()
+
+    go func() {
+        time.Sleep(50 * time.Millisecond)
+        ch2 &lt;- "B"
+    }()
+
+    // 多次运行: A / B 的出现顺序随机
+    for i := 0; i &lt; 5; i++ {
+        select {
+        case msg := &lt;-ch1:
+            fmt.Println("第", i+1, "次:", msg)
+        case msg := &lt;-ch2:
+            fmt.Println("第", i+1, "次:", msg)
+        }
+    }
+}</code></pre>
+
+    <h2 id="pitfalls">7. 生产环境坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1: 所有 case 都阻塞导致死锁</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>ch1 := make(chan int)
+ch2 := make(chan int)
+select {
+case &lt;-ch1:
+case &lt;-ch2:
+}
+// 两个 channel 都没人发送 → fatal error: all goroutines are asleep - deadlock!</code></pre>
+      只要 select 没有 default,且所有 case 都没机会就绪,就必死锁(单 G 程序里 runtime 会直接 panic)。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2: 忽略 nil channel 的特殊行为</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>var ch chan int // nil channel
+select {
+case &lt;-ch: // nil channel,这个 case 永远不会被选中
+    fmt.Println("永远不会执行到这里")
+default:
+    fmt.Println("总是执行 default")
+}</code></pre>
+      <strong>nil channel 在 select 中永远阻塞</strong>。这其实是一个很有用的特性——可以把变量设成 nil 来「临时禁用」某个 case,详见 3.3 节。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 3: 循环里用 time.After 内存泄露</span>
+<pre class="language-go" style="margin:8px 0 0 0"><code>// 错误: 每次循环都创建新 Timer,且不会被回收
+for {
+    select {
+    case &lt;-ch:
+    case &lt;-time.After(5 * time.Second):
+    }
+}
+
+// 正确: 复用 Timer
+timeout := time.NewTimer(5 * time.Second)
+defer timeout.Stop()
+for {
+    select {
+    case &lt;-ch:
+        if !timeout.Stop() { &lt;-timeout.C }
+        timeout.Reset(5 * time.Second)
+    case &lt;-timeout.C:
+        return
+    }
+}</code></pre>
+      详细解释见 3.3 节坑点专项。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+    <ol>
+      <li><strong>实现超时机制</strong>:写一个函数,接收一个 channel,等待数据到来,但最多等待 3 秒,超时则返回错误。要求使用 <code>select</code> + <code>time.After</code>,无内存泄露。</li>
+      <li><strong>理解随机选择 (概念题)</strong>:select 在多个 case 就绪时为何随机选择?这样做避免了什么问题?</li>
+      <li><strong>对比 Java NIO Selector 与 Go select</strong>:在设计哲学和适用场景上的本质差异是什么?</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./lesson_03_select.html">
+        <div class="label">← 上一页</div>
+        <div class="title">L3 总览</div>
+      </a>
+      <a class="next" href="./02_select_patterns.html">
+        <div class="label">下一页 →</div>
+        <div class="title">3.2 select 模式</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>

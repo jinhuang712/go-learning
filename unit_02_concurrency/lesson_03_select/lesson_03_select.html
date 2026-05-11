@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Lesson 4 · Context 传递与级联取消 · Go Learning</title>
+<title>Lesson 3 · Select 多路复用 · Go Learning</title>
 <link rel="stylesheet" href="../../assets/style.css" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
 </head>
@@ -32,8 +32,8 @@
     <h2>Unit 2 · 并发与并行</h2>
     <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
     <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
-    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
-    <a href="../lesson_04_context/lesson_04_context.html" class="active">L4 · Context</a>
+    <a href="../lesson_03_select/lesson_03_select.html" class="active">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
     <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
     <a href="../lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
 
@@ -47,75 +47,82 @@
       <span class="sep">/</span>
       <a href="../../study-plan.html">Study Plan</a>
       <span class="sep">/</span>
-      <span class="current">Unit 2 · Lesson 4 · Context</span>
+      <span class="current">Unit 2 · Lesson 3 · Select</span>
     </nav>
 
-    <h1>Lesson 4 · Context 传递与级联取消</h1>
+    <h1>Lesson 3 · Select 多路复用与超时控制</h1>
 
-    <p>Context 是 Go 微服务的「请求血脉」——一条贯穿 HTTP/gRPC handler、数据库、缓存、下游 RPC 的「取消 + 超时 + 元数据」通道。Java 程序员要把它当作「显式版的 ThreadLocal + InterruptibleFuture + Tracing MDC 三合一」。</p>
+    <p><code>select</code> 是 Go 唯一能「同时等待多个 channel 事件」的语法,本质上是 channel 的<strong>多路复用器</strong>。
+       这一课从语法、随机选择规则讲起,过渡到生产中最常见的几种模式(超时控制、非阻塞读写、多路 fan-in、退出信号),
+       再覆盖最容易踩的几个坑——nil channel、空 <code>select{}</code>、循环里的 <code>time.After</code> 内存泄露。</p>
 
-    <div class="callout note">
-      <span class="callout-title">学习地图</span>
-      本 Lesson 围绕 3 个 Section 展开:先理解 Context 接口的 4 个方法 → 再学会派生(WithCancel/WithTimeout/WithValue)→ 最后掌握跨服务传播的工程化最佳实践。
+    <div class="callout java">
+      <span class="callout-title">Java 对照</span>
+      Java 最接近的东西是 <code>java.nio.channels.Selector</code>——但那是基于 IO 多路复用 (epoll/kqueue) 的<strong>类库</strong>,
+      只能用于网络 fd,而且要显式注册、按 key 处理。
+      <code>CompletableFuture.anyOf()</code> 倒是「多路等待」的高阶抽象,但开销远高于 select。
+      Go 的 <code>select</code> 是<strong>语法级别</strong>的多路复用,适用于任意 channel,且开销极低。
     </div>
 
     <div class="diagram">
       <div class="mermaid">
 flowchart LR
-  S1[4.1<br/>Context 基础<br/>接口 + Background/TODO]:::sec --> S2[4.2<br/>派生 Context<br/>WithCancel/Timeout/Value]:::sec
-  S2 --> S3[4.3<br/>传播最佳实践<br/>HTTP / RPC / 中间件]:::pit
+  S1[3.1<br/>select 基础]:::sec --> S2[3.2<br/>常用模式]:::sec
+  S2 --> S3[3.3<br/>坑点专项]:::deep
+  S3 --> N[L4 · Context]:::next
 
   classDef sec fill:#89b4fa,color:#11111b,stroke:#89b4fa;
-  classDef pit fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef deep fill:#cba6f7,color:#11111b,stroke:#cba6f7;
+  classDef next fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
       </div>
-      <div class="diagram-caption">图 · Lesson 4 三个 Section 的递进顺序</div>
-    </div>
-
-    <div class="callout java">
-      <span class="callout-title">Java 对照视角</span>
-      在 Java 里,你大概率需要拼一套 <code>ThreadLocal</code> + <code>InheritableThreadLocal</code> + <code>InterruptibleFuture</code> + <code>TraceContext</code> 才能凑齐 Go 一个 <code>context.Context</code> 的能力。
-      Go 把这套机制写进了语言生态:<strong>net/http、database/sql、gRPC、各类中间件</strong>都接受 <code>ctx</code> 作为第一个参数。
+      <div class="diagram-caption">图 · Lesson 3 推进顺序: 语法 → 工业模式 → 生产坑点</div>
     </div>
 
     <h2 id="sections">📑 课程目录</h2>
 
     <div class="card-grid">
-      <a class="card" href="./01_context_basics.html">
-        <div class="card-title">4.1 · Context 基础</div>
+      <a class="card" href="./01_select_basics.html">
+        <div class="card-title">3.1 · select 基础</div>
         <div class="card-desc">
-          <code>Context</code> 接口的 4 个方法 · <code>Background()</code> vs <code>TODO()</code> · 与 Java <code>ThreadLocal</code> 对比
+          select 语法 · 随机选择 · default 分支 · 与 Java NIO Selector 对照
           <span class="badge badge-java">JAVA</span>
         </div>
       </a>
-      <a class="card" href="./02_context_derived.html">
-        <div class="card-title">4.2 · 派生 Context</div>
+      <a class="card" href="./02_select_patterns.html">
+        <div class="card-title">3.2 · select 模式</div>
         <div class="card-desc">
-          <code>WithCancel</code> / <code>WithTimeout</code> / <code>WithDeadline</code> / <code>WithValue</code> · 级联取消的树形结构
-          <span class="badge badge-go">GO 核心</span>
+          超时控制 (time.After) · 非阻塞读写 · 多路 fan-in · 退出信号
         </div>
       </a>
-      <a class="card" href="./03_context_propagation.html">
-        <div class="card-title">4.3 · 传播最佳实践</div>
+      <a class="card" href="./03_select_pitfalls.html">
+        <div class="card-title">3.3 · select 坑点</div>
         <div class="card-desc">
-          HTTP middleware · 总是第一个参数 · 不要存进 struct · key 类型设计
-          <span class="badge badge-pitfall">PITFALL</span>
+          nil channel 永久阻塞 · 空 select{} · 循环 time.After 内存泄露
+          <span class="badge badge-warn">PITFALLS</span>
         </div>
       </a>
     </div>
 
+    <h2 id="learning-goals">🎯 学习目标</h2>
+    <ul>
+      <li>能用 <code>select</code> 写超时、退出、非阻塞、多路 fan-in 四类经典模式。</li>
+      <li>理解多 case 就绪时的<strong>随机选择</strong>机制,能解释它如何避免饥饿。</li>
+      <li>知道 <code>nil channel</code> 在 select 中「永远不被选中」的特性,能借此动态启用/禁用 case。</li>
+      <li>知道循环里 <code>time.After</code> 为什么泄露,能用 <code>time.NewTimer + Reset</code> 修复。</li>
+    </ul>
+
     <h2 id="run">🚀 运行方式</h2>
-    <p>在 <code>main.go</code> 中调用 <code>lesson_04_context.Run()</code> 即可执行本 Lesson 演示代码。</p>
     <pre class="language-bash"><code>go run .
-go test ./unit_02_concurrency/lesson_04_context/...</code></pre>
+go test ./unit_02_concurrency/lesson_03_select</code></pre>
 
     <div class="page-nav">
-      <a class="prev" href="../lesson_03_select/03_select_pitfalls.html">
-        <div class="label">← 上一节</div>
-        <div class="title">3.3 · select 坑点</div>
+      <a class="prev" href="../lesson_02_channel/03_channel_underhood.html">
+        <div class="label">← 上一页</div>
+        <div class="title">2.3 Channel 底层</div>
       </a>
-      <a class="next" href="./01_context_basics.html">
+      <a class="next" href="./01_select_basics.html">
         <div class="label">开始 →</div>
-        <div class="title">4.1 · Context 基础</div>
+        <div class="title">3.1 select 基础</div>
       </a>
     </div>
   </main>

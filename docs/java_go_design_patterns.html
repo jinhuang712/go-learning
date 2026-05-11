@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Java/Go 设计模式 · Go Learning</title>
+<link rel="stylesheet" href="../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="./java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="./java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="./java_go_design_patterns.html" class="active">Java/Go 设计模式</a>
+    <a href="./java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../unit_02_concurrency/lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../unit_02_concurrency/lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <span class="current">📚 Java/Go 设计模式</span>
+    </nav>
+
+    <h1>Java / Go 设计模式对照</h1>
+
+    <div class="callout note">
+      <span class="callout-title">本文目标</span>
+      对比常用 GoF 设计模式在 Java 和 Go 中的不同实现方式,帮助 Java 开发者理解 Go 语言的设计哲学。<br/>
+      Go 的灵魂是:<strong>组合优于继承</strong> · <strong>简单优于复杂</strong> · <strong>明确优于隐式</strong>。<br/>
+      许多模式在 Go 中其实只需要一个函数、一个接口、几行代码即可表达。
+    </div>
+
+    <h2 id="map">0. 模式对照全图</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  subgraph J["☕ Java · 经典 GoF 实现"]
+    direction TB
+    JS["Singleton<br/>双重检查锁 + volatile"]:::java
+    JF["Factory<br/>继承 + 多态"]:::java
+    JT["Strategy<br/>Interface + Impl 类"]:::java
+    JO["Observer<br/>List&lt;Observer&gt; + 同步通知"]:::java
+    JD["Decorator<br/>包装类继承基类"]:::java
+  end
+
+  subgraph G["⬢ Go · 简化 / 函数化实现"]
+    direction TB
+    GS["Singleton<br/>sync.Once"]:::go
+    GF["Factory<br/>NewXxx() 函数 + 接口"]:::go
+    GT["Strategy<br/>接口 / 函数类型 (FP)"]:::go
+    GO["Observer<br/>切片 / Channel 异步通知"]:::go
+    GD["Decorator<br/>中间件函数 (HTTP 风格)"]:::go
+  end
+
+  JS -. "更简洁" .-> GS
+  JF -. "命名约定" .-> GF
+  JT -. "函数即一等公民" .-> GT
+  JO -. "Channel 异步" .-> GO
+  JD -. "高阶函数" .-> GD
+
+  classDef java fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef go fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+      </div>
+      <div class="diagram-caption">图 1 · 5 种典型模式在 Java vs Go 的实现方式对照</div>
+    </div>
+
+    <h2 id="singleton">1. Singleton(单例模式)</h2>
+
+    <h3>Java 实现</h3>
+
+    <pre class="language-java"><code>public class Singleton {
+    private static volatile Singleton instance;
+
+    private Singleton() {}
+
+    public static Singleton getInstance() {
+        if (instance == null) {
+            synchronized (Singleton.class) {
+                if (instance == null) {
+                    instance = new Singleton();
+                }
+            }
+        }
+        return instance;
+    }
+}</code></pre>
+
+    <h3>Go 实现</h3>
+
+    <pre class="language-go"><code>package singleton
+
+import "sync"
+
+type Singleton struct{}
+
+var (
+    instance *Singleton
+    once     sync.Once
+)
+
+func GetInstance() *Singleton {
+    once.Do(func() {
+        instance = &Singleton{}
+    })
+    return instance
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+sequenceDiagram
+  participant T1 as Goroutine A
+  participant T2 as Goroutine B
+  participant Once as sync.Once
+  participant Init as init()
+
+  par 并发首次调用
+    T1->>Once: Do(initFn)
+    T2->>Once: Do(initFn)
+  end
+  Note over Once: 内部 atomic + mutex<br/>只放过 1 个进入 init
+  Once->>Init: 调用一次
+  Init-->>Once: 返回
+  Once-->>T1: 返回
+  Once-->>T2: 直接返回(不再执行 init)
+      </div>
+      <div class="diagram-caption">图 2 · <code>sync.Once</code> 在并发首次调用时的内部时序</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">对比说明</span>
+      <ul>
+        <li>Java: 需要双重检查锁 + <code>volatile</code> 保证可见性</li>
+        <li>Go: 使用 <code>sync.Once</code>,更简洁、更安全,而且<strong>初始化时的 panic 会让 Once 保持已完成状态</strong>,需注意业务侧防御</li>
+      </ul>
+    </div>
+
+    <h2 id="factory">2. Factory(工厂模式)</h2>
+
+    <h3>Java 实现</h3>
+
+    <pre class="language-java"><code>public interface Shape {
+    void draw();
+}
+
+public class Circle implements Shape {
+    public void draw() { System.out.println("Circle"); }
+}
+
+public class Square implements Shape {
+    public void draw() { System.out.println("Square"); }
+}
+
+public class ShapeFactory {
+    public static Shape getShape(String type) {
+        if ("circle".equals(type)) return new Circle();
+        if ("square".equals(type)) return new Square();
+        return null;
+    }
+}</code></pre>
+
+    <h3>Go 实现</h3>
+
+    <pre class="language-go"><code>package factory
+
+type Shape interface {
+    Draw()
+}
+
+type Circle struct{}
+func (c *Circle) Draw() { println("Circle") }
+
+type Square struct{}
+func (s *Square) Draw() { println("Square") }
+
+func NewShape(shapeType string) Shape {
+    switch shapeType {
+    case "circle":
+        return &Circle{}
+    case "square":
+        return &Square{}
+    default:
+        return nil
+    }
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">对比说明</span>
+      <ul>
+        <li>结构非常类似,都是通过接口实现多态(Go 隐式实现 vs Java 显式 <code>implements</code>)</li>
+        <li>Go 的构造函数通常命名为 <code>NewXxx</code>,这是社区约定俗成的规范</li>
+        <li>错误处理:Go 推荐返回 <code>(Shape, error)</code> 而非 <code>nil</code>,让调用者明确处理</li>
+      </ul>
+    </div>
+
+    <h2 id="strategy">3. Strategy(策略模式)</h2>
+
+    <h3>Java 实现</h3>
+
+    <pre class="language-java"><code>public interface PaymentStrategy {
+    void pay(int amount);
+}
+
+public class CreditCardPayment implements PaymentStrategy {
+    public void pay(int amount) { /* ... */ }
+}
+
+public class ShoppingCart {
+    private PaymentStrategy strategy;
+
+    public void setStrategy(PaymentStrategy strategy) {
+        this.strategy = strategy;
+    }
+}</code></pre>
+
+    <h3>Go 实现 · 接口风格</h3>
+
+    <pre class="language-go"><code>package strategy
+
+type PaymentStrategy interface {
+    Pay(amount int)
+}
+
+type CreditCardPayment struct{}
+func (c *CreditCardPayment) Pay(amount int) { /* ... */ }
+
+type ShoppingCart struct {
+    strategy PaymentStrategy
+}
+
+func (s *ShoppingCart) SetStrategy(strategy PaymentStrategy) {
+    s.strategy = strategy
+}</code></pre>
+
+    <h3>Go 的另一种方式 · 函数作为策略</h3>
+
+    <pre class="language-go"><code>type PaymentFunc func(amount int)
+
+func CreditCardPay(amount int) { /* ... */ }
+
+type ShoppingCart struct {
+    payFunc PaymentFunc
+}
+
+func (s *ShoppingCart) SetPaymentFunc(f PaymentFunc) {
+    s.payFunc = f
+}
+
+// 使用
+cart.SetPaymentFunc(CreditCardPay)
+cart.SetPaymentFunc(func(amount int) {
+    fmt.Println("pay by wallet", amount)
+})</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">对比说明</span>
+      <ul>
+        <li>经典实现非常类似</li>
+        <li>Go 把<strong>函数作为一等公民</strong>,小策略直接传函数,无需为每种策略写一个类型</li>
+        <li>这正是 Go 在 HTTP / log / sort 标准库中无处不在的风格 (<code>http.HandlerFunc</code>, <code>sort.Slice</code>)</li>
+      </ul>
+    </div>
+
+    <h2 id="observer">4. Observer(观察者模式)</h2>
+
+    <h3>Java 实现</h3>
+
+    <pre class="language-java"><code>import java.util.ArrayList;
+import java.util.List;
+
+public interface Observer {
+    void update(String event);
+}
+
+public class Subject {
+    private List<Observer> observers = new ArrayList<>();
+
+    public void register(Observer o) { observers.add(o); }
+    public void notifyObservers(String event) {
+        observers.forEach(o -> o.update(event));
+    }
+}</code></pre>
+
+    <h3>Go 实现 · 同步</h3>
+
+    <pre class="language-go"><code>package observer
+
+type Observer interface {
+    Update(event string)
+}
+
+type Subject struct {
+    observers []Observer
+}
+
+func (s *Subject) Register(o Observer) {
+    s.observers = append(s.observers, o)
+}
+
+func (s *Subject) NotifyObservers(event string) {
+    for _, o := range s.observers {
+        o.Update(event)
+    }
+}</code></pre>
+
+    <h3>Go 的另一种方式 · 用 Channel 异步</h3>
+
+    <pre class="language-go"><code>type Event struct {
+    Type string
+    Data interface{}
+}
+
+type Subject struct {
+    observers []chan<- Event
+}
+
+func (s *Subject) Notify(event Event) {
+    for _, ch := range s.observers {
+        select {
+        case ch <- event:
+        default: // 非阻塞,避免慢消费者拖垮发布者
+        }
+    }
+}</code></pre>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  P[Publisher / Subject] -- "Event" --> CH1[/"chan&lt;- Event"/]:::ch
+  P -- "Event" --> CH2[/"chan&lt;- Event"/]:::ch
+  P -- "Event" --> CH3[/"chan&lt;- Event"/]:::ch
+  CH1 --> S1[Subscriber A<br/>独立 goroutine]:::sub
+  CH2 --> S2[Subscriber B<br/>独立 goroutine]:::sub
+  CH3 --> S3[Subscriber C<br/>独立 goroutine]:::sub
+
+  P -. "select default 跳过慢消费者" .-> WARN[(避免发布者被拖垮)]:::warn
+
+  classDef ch fill:#94e2d5,color:#11111b,stroke:#94e2d5;
+  classDef sub fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+  classDef warn fill:#f9e2af,color:#11111b,stroke:#f9e2af;
+      </div>
+      <div class="diagram-caption">图 3 · 基于 Channel 的异步观察者(Pub/Sub 雏形)</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-title">对比说明</span>
+      <ul>
+        <li>经典实现类似</li>
+        <li>Go 可以用 Channel 实现异步、非阻塞、慢消费者隔离的观察者模式</li>
+        <li>实际项目中,Channel 风格往往是 Pub/Sub / EventBus 的起点</li>
+      </ul>
+    </div>
+
+    <h2 id="decorator">5. Decorator(装饰器模式)</h2>
+
+    <h3>Java 实现</h3>
+
+    <pre class="language-java"><code>public interface Coffee {
+    double cost();
+}
+
+public class SimpleCoffee implements Coffee {
+    public double cost() { return 5.0; }
+}
+
+public class MilkDecorator implements Coffee {
+    private Coffee coffee;
+    public MilkDecorator(Coffee coffee) { this.coffee = coffee; }
+    public double cost() { return coffee.cost() + 1.5; }
+}</code></pre>
+
+    <h3>Go 实现</h3>
+
+    <pre class="language-go"><code>package decorator
+
+type Coffee interface {
+    Cost() float64
+}
+
+type SimpleCoffee struct{}
+func (s *SimpleCoffee) Cost() float64 { return 5.0 }
+
+type MilkDecorator struct {
+    coffee Coffee
+}
+func (m *MilkDecorator) Cost() float64 { return m.coffee.Cost() + 1.5 }
+
+func WithMilk(c Coffee) Coffee {
+    return &MilkDecorator{coffee: c}
+}</code></pre>
+
+    <h3>Go 的另一种方式 · HTTP 风格的函数式装饰器(中间件)</h3>
+
+    <pre class="language-go"><code>type Handler func(req *Request) *Response
+
+func WithLogging(next Handler) Handler {
+    return func(req *Request) *Response {
+        log.Println("in", req.URL)
+        resp := next(req)
+        log.Println("out", resp.Status)
+        return resp
+    }
+}
+
+func WithAuth(next Handler) Handler {
+    return func(req *Request) *Response {
+        if !authOK(req) {
+            return &Response{Status: 401}
+        }
+        return next(req)
+    }
+}
+
+// 链式装饰
+handler := WithLogging(WithAuth(myHandler))</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">这就是 Gin / Echo / Chi 中间件的本质</span>
+      装饰器在 Go 中已经从「模式」演化为「日常写法」。
+      <code>net/http</code> 的 <code>Handler</code> / <code>HandlerFunc</code> 接口让中间件可无限套娃。
+    </div>
+
+    <h2 id="summary">6. 总结对照</h2>
+
+    <table>
+      <thead>
+        <tr><th>模式</th><th>Java 特点</th><th>Go 特点</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Singleton</td><td>双重检查锁 + <code>volatile</code></td><td><code>sync.Once</code> 更简洁</td></tr>
+        <tr><td>Factory</td><td>继承 + 多态</td><td>组合 + 接口 + <code>NewXxx</code></td></tr>
+        <tr><td>Strategy</td><td>接口 + 实现类</td><td>接口 + 实现 + <strong>函数类型</strong></td></tr>
+        <tr><td>Observer</td><td>List + 同步遍历</td><td>Slice + 遍历 / <strong>Channel 异步</strong></td></tr>
+        <tr><td>Decorator</td><td>包装类</td><td>包装类 + <strong>中间件函数</strong></td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="more-patterns">7. 那些在 Go 里几乎"消失"的模式</h2>
+
+    <table>
+      <thead>
+        <tr><th>模式</th><th>Java 常见用法</th><th>Go 的简化做法</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Builder</td><td>链式 <code>setXxx()</code></td><td>Functional Options <code>WithXxx(...)</code></td></tr>
+        <tr><td>Adapter</td><td>实现目标接口包装老接口</td><td>新建一个小接口,定义适配函数即可</td></tr>
+        <tr><td>Template Method</td><td>父类骨架 + 子类覆盖</td><td>接口 + 组合,或高阶函数传入「钩子」</td></tr>
+        <tr><td>Visitor</td><td>双重分派</td><td>类型 switch + 接口断言</td></tr>
+        <tr><td>Chain of Responsibility</td><td>handler 链表</td><td>middleware 函数链</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="functional-options">8. 番外:Functional Options(Go 圈最常用的「替代 Builder」)</h2>
+
+    <pre class="language-go"><code>type Server struct {
+    addr    string
+    timeout time.Duration
+    logger  *log.Logger
+}
+
+type Option func(*Server)
+
+func WithTimeout(d time.Duration) Option {
+    return func(s *Server) { s.timeout = d }
+}
+
+func WithLogger(l *log.Logger) Option {
+    return func(s *Server) { s.logger = l }
+}
+
+func NewServer(addr string, opts ...Option) *Server {
+    s := &Server{addr: addr, timeout: 10 * time.Second}
+    for _, opt := range opts {
+        opt(s)
+    }
+    return s
+}
+
+// 使用
+srv := NewServer(":8080",
+    WithTimeout(30*time.Second),
+    WithLogger(myLogger),
+)</code></pre>
+
+    <div class="callout note">
+      <span class="callout-title">为什么 Functional Options 胜过 Builder</span>
+      <ul>
+        <li><strong>类型安全</strong>:不会出现 Builder 模式里「忘了调 build()」的运行期错误</li>
+        <li><strong>向前兼容</strong>:加新选项不破坏调用方代码</li>
+        <li><strong>零值友好</strong>:不调用任何 Option 时,Server 也是可用的</li>
+      </ul>
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">核心心智迁移</span>
+      <ul>
+        <li>抛弃继承思维,<strong>多用组合</strong></li>
+        <li>善用<strong>函数作为一等公民</strong>,小策略直接传函数</li>
+        <li>遇到「需要广播 / 异步通知」的场景,优先考虑 <strong>Channel</strong></li>
+        <li>设计模式不是教条,Go 鼓励<strong>用最少的概念解决问题</strong></li>
+      </ul>
+    </div>
+
+    <div class="page-nav">
+      <a class="prev" href="./java_go_concurrency.html">
+        <div class="label">← 上一篇</div>
+        <div class="title">Java/Go 并发对比</div>
+      </a>
+      <a class="next" href="./java_go_microservices.html">
+        <div class="label">下一篇 →</div>
+        <div class="title">Java/Go 微服务</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

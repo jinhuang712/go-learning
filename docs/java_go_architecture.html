@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Java/Go 架构思路 · Go Learning</title>
+<link rel="stylesheet" href="../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="./java_go_architecture.html" class="active">Java/Go 架构思路</a>
+    <a href="./java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="./java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="./java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../unit_02_concurrency/lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../unit_02_concurrency/lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../unit_02_concurrency/lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../unit_02_concurrency/lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../unit_02_concurrency/lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../unit_02_concurrency/lesson_06_race_detector/lesson_06_race_detector.html">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <span class="current">📚 Java/Go 架构思路</span>
+    </nav>
+
+    <h1>Java / Go 架构思路对比</h1>
+
+    <div class="callout note">
+      <span class="callout-title">本文目标</span>
+      从<strong>架构设计思路</strong>层面对比 Java 和 Go,帮助 Java 开发者理解 Go 的设计哲学,
+      避免用 Java 思维写 Go 代码 —— 这是 Java→Go 迁移中最致命也是最常见的坑。
+    </div>
+
+    <h2 id="oop-vs-composition">1. 面向对象(继承) vs 组合</h2>
+
+    <p>Java 最深刻的心智模型就是「类型层次树」:一切类都来自 <code>Object</code>,通过 <code>extends</code>
+    建立父子关系,通过多态在父类指针下调用子类方法。Go 则<strong>没有继承</strong>,只有<strong>组合</strong>与
+    <strong>接口</strong>。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TB
+  subgraph JAVA["☕ Java · 类型继承树 (is-a)"]
+    direction TB
+    Obj["Object"]:::root --> Animal["Animal<br/>protected name<br/>+eat()"]:::base
+    Animal --> Dog["Dog extends Animal<br/>+bark()"]:::leaf
+    Animal --> Cat["Cat extends Animal<br/>+meow()"]:::leaf
+    Dog --> Husky["Husky extends Dog<br/>+howl()"]:::leaf
+  end
+
+  subgraph GO["⬢ Go · 组合 + 接口 (has-a / can-do)"]
+    direction TB
+    AnimalG["type Animal struct<br/>Name string"]:::comp
+    DogG["type Dog struct {<br/>  Animal   ← 匿名嵌入<br/>  Breed string<br/>}"]:::comp
+    AnimalG -. "嵌入而非继承" .-> DogG
+
+    IFace[/"type Speaker interface<br/>Speak() string"/]:::iface
+    DogG -. "隐式实现" .-> IFace
+  end
+
+  classDef root fill:#6c7086,color:#cdd6f4,stroke:#6c7086;
+  classDef base fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef leaf fill:#f38ba8,color:#11111b,stroke:#f38ba8;
+  classDef comp fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+  classDef iface fill:#a6e3a1,color:#11111b,stroke:#a6e3a1;
+      </div>
+      <div class="diagram-caption">图 1 · Java 继承体系 vs Go 组合 + 接口体系</div>
+    </div>
+
+    <h3>Java: 基于继承的 OOP</h3>
+
+    <pre class="language-java"><code>// Java: 继承
+public class Animal {
+    protected String name;
+    public void eat() { /* ... */ }
+}
+
+public class Dog extends Animal {
+    public void bark() { /* ... */ }
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java 特点</span>
+      <ul>
+        <li>类继承(单继承 + 多接口)</li>
+        <li>多态通过继承体系实现</li>
+        <li>设计模式大量使用继承 (Template Method、Decorator 等)</li>
+      </ul>
+    </div>
+
+    <h3>Go: 基于组合的设计</h3>
+
+    <pre class="language-go"><code>// Go: 组合而非继承
+type Animal struct {
+    Name string
+}
+
+func (a *Animal) Eat() { /* ... */ }
+
+type Dog struct {
+    Animal       // 匿名嵌入,类似继承但只是组合
+    Breed string
+}
+
+func (d *Dog) Bark() { /* ... */ }</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">Go 特点</span>
+      <ul>
+        <li>没有继承,只有组合(struct 嵌入 struct)</li>
+        <li>多态通过<strong>接口</strong>实现,接口靠方法集自动满足(鸭子类型)</li>
+        <li>匿名嵌入只是<strong>语法糖</strong>,不是父子关系,不存在 <code>instanceof</code> 这种概念</li>
+      </ul>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">心智迁移</span>
+      <ul>
+        <li>不要尝试用 <code>struct</code> 模拟类继承,Go 没有 <code>super</code>、没有 <code>protected</code></li>
+        <li><strong>多用小接口,少用大接口</strong>(<code>io.Reader</code>、<code>io.Writer</code> 都只有 1 个方法)</li>
+        <li>使用组合来复用代码,使用接口来定义行为契约</li>
+      </ul>
+    </div>
+
+    <h2 id="exception-vs-error">2. 异常处理 vs 值错误</h2>
+
+    <h3>Java: 异常机制</h3>
+
+    <pre class="language-java"><code>// Java: 异常
+public User getUser(Long id) throws UserNotFoundException {
+    User user = repository.findById(id);
+    if (user == null) {
+        throw new UserNotFoundException("User not found");
+    }
+    return user;
+}
+
+try {
+    User user = getUser(123);
+} catch (UserNotFoundException e) {
+    // 处理异常
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java 特点</span>
+      <ul>
+        <li>异常分为 Checked / Unchecked</li>
+        <li>异常会<strong>中断</strong>控制流,栈展开 (stack unwinding)</li>
+        <li><code>try-catch-finally</code> 是核心处理结构</li>
+      </ul>
+    </div>
+
+    <h3>Go: 值错误</h3>
+
+    <pre class="language-go"><code>// Go: 多返回值 + error
+func GetUser(id int64) (*User, error) {
+    user := repository.FindByID(id)
+    if user == nil {
+        return nil, fmt.Errorf("user not found: %d", id)
+    }
+    return user, nil
+}
+
+user, err := GetUser(123)
+if err != nil {
+    // 处理错误
+    return err
+}
+// 继续执行</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">Go 特点</span>
+      <ul>
+        <li>错误是<strong>普通的值</strong>(<code>error</code> 接口)</li>
+        <li>多返回值返回错误,调用者必须显式检查</li>
+        <li><code>panic</code> 只用于真正不可恢复的故障(类似 Java 的 Error / 严重 RuntimeException)</li>
+      </ul>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">心智迁移</span>
+      <ul>
+        <li>不要用 <code>panic</code> 代替 <code>error</code> —— 不要把 Go 写成「带 try-catch 的 Java」</li>
+        <li>错误是控制流的<strong>一部分</strong>,不是异常</li>
+        <li>显式处理每个 error,不要 <code>_</code> 忽略;Go 1.13+ 用 <code>errors.Is</code> / <code>errors.As</code> 包裹与解包</li>
+      </ul>
+    </div>
+
+    <h2 id="ioc-vs-di">3. IoC 容器 vs 手动依赖注入</h2>
+
+    <h3>Java: Spring IoC 容器</h3>
+
+    <pre class="language-java"><code>// Java: Spring 自动注入
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepository repository;
+
+    @Autowired
+    private EmailService emailService;
+}</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java 特点</span>
+      <ul>
+        <li>容器管理对象生命周期(单例 / 原型 / Session 等)</li>
+        <li>自动注入依赖(<code>@Autowired</code> / 构造器注入 / Setter 注入)</li>
+        <li>配置驱动 (XML / Java Config / Annotation)</li>
+      </ul>
+    </div>
+
+    <h3>Go: 手动依赖注入</h3>
+
+    <pre class="language-go"><code>// Go: 手动注入
+type UserService struct {
+    repo  UserRepository
+    email EmailService
+}
+
+func NewUserService(repo UserRepository, email EmailService) *UserService {
+    return &UserService{
+        repo:  repo,
+        email: email,
+    }
+}
+
+// main 中组装
+repo := NewUserRepository()
+email := NewEmailService()
+userService := NewUserService(repo, email)</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">Go 特点</span>
+      <ul>
+        <li>手动组装依赖,通常集中在 <code>main</code> 或 <code>wire</code> 文件中</li>
+        <li>通过<strong>构造函数</strong>传递依赖,符合「明确优于隐式」</li>
+        <li>有需要时可用 <code>google/wire</code> 做编译期 DI,而非运行期反射</li>
+      </ul>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">心智迁移</span>
+      <ul>
+        <li>不要寻找 Spring 那样的 IoC 容器,Go 的「容器」就是 <code>main()</code></li>
+        <li>在 <code>main</code> 函数中组装所有依赖,自上而下,清晰可读</li>
+        <li>构造函数应该是「纯」的,只做参数验证和赋值,不做副作用 IO</li>
+      </ul>
+    </div>
+
+    <h2 id="thread-vs-goroutine">4. 线程池 vs Goroutine</h2>
+
+    <h3>Java: 线程池</h3>
+
+    <pre class="language-java"><code>// Java: 线程池管理
+ExecutorService pool = Executors.newFixedThreadPool(10);
+
+for (int i = 0; i < 100; i++) {
+    pool.submit(() -> {
+        // 任务
+    });
+}
+
+pool.shutdown();</code></pre>
+
+    <div class="callout java">
+      <span class="callout-title">Java 特点</span>
+      <ul>
+        <li>线程开销大(默认栈 ~1MB),必须池化</li>
+        <li>线程池大小需要谨慎配置(IO vs CPU 密集)</li>
+        <li>上下文切换昂贵(由 OS 调度)</li>
+      </ul>
+    </div>
+
+    <h3>Go: Goroutine</h3>
+
+    <pre class="language-go"><code>// Go: 直接用 Goroutine
+for i := 0; i < 100_000; i++ {
+    go func() {
+        // 任务
+    }()
+}
+
+// 可选:用 Channel 或工作池限制并发
+sem := make(chan struct{}, 100)
+for i := 0; i < 100_000; i++ {
+    sem <- struct{}{}
+    go func() {
+        defer func() { <-sem }()
+        // 任务
+    }()
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">Go 特点</span>
+      <ul>
+        <li>Goroutine 开销极小(初始栈 2KB,动态伸缩),通常不需要池化</li>
+        <li><code>GOMAXPROCS</code> 控制并行度(默认等于 CPU 核数)</li>
+        <li>Channel 用于同步、通信和控制 (CSP 模型)</li>
+      </ul>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">心智迁移</span>
+      <ul>
+        <li>不要一上来就建 Goroutine 池(Java 直觉),先考虑直接 <code>go func()</code></li>
+        <li>需要限制并发时,用 Channel 做信号量 (Semaphore)</li>
+        <li>Goroutine 不是「免费」的:仍要管理生命周期、防泄漏 (用 <code>context.Context</code>)</li>
+      </ul>
+    </div>
+
+    <h2 id="null-safety">5. Null 安全</h2>
+
+    <h3>Java: NullPointerException</h3>
+
+    <pre class="language-java"><code>// Java: NPE 风险
+User user = getUser();
+String name = user.getName();  // 如果 user 是 null,抛 NPE
+
+// Java 8+: Optional
+Optional<User> userOpt = getUser();
+userOpt.ifPresent(u -> { /* ... */ });</code></pre>
+
+    <h3>Go: nil 检查</h3>
+
+    <pre class="language-go"><code>// Go: 显式 nil 检查
+user, err := GetUser()
+if err != nil {
+    return err
+}
+if user == nil {
+    return errors.New("user not found")
+}
+name := user.Name  // 安全
+
+// 接口 nil 的坑!
+var u *User = nil
+var i interface{} = u
+fmt.Println(i == nil)  // false! 注意这个坑!</code></pre>
+
+    <div class="callout danger">
+      <span class="callout-title">著名坑点 · 接口 nil</span>
+      Go 接口由 (type, value) 组成。给 <code>interface{}</code> 赋值一个「带类型的 nil 指针」时,
+      <strong>类型</strong>不是 nil,所以接口整体 <code>!= nil</code>,这是 Java 开发者最常踩的坑之一。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">心智迁移</span>
+      <ul>
+        <li>总是检查 <code>error</code>,Go 没有 NPE 抛出,但有 nil pointer dereference panic</li>
+        <li>显式检查 <code>nil</code>;返回错误的函数通常会保证「err != nil 时其他返回值不可用」</li>
+        <li>对外暴露 API 时,尽量避免返回带类型的 nil 接口</li>
+      </ul>
+    </div>
+
+    <h2 id="project-layout">6. 典型项目目录对比</h2>
+
+    <p>Java 与 Go 的项目骨架来自完全不同的传统:Java 沿用 Maven 风格的多层模块和分包,
+    Go 则是扁平的、按功能聚合的小包结构。</p>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart LR
+  subgraph J["☕ Spring Boot 典型项目"]
+    direction TB
+    J1["src/main/java/<br/>com.example.app"]:::java
+    J1 --> J2["controller/<br/>UserController.java"]:::java
+    J1 --> J3["service/<br/>UserService.java<br/>UserServiceImpl.java"]:::java
+    J1 --> J4["repository/<br/>UserRepository.java"]:::java
+    J1 --> J5["model/dto/entity/<br/>User.java"]:::java
+    J1 --> J6["config/<br/>WebConfig.java"]:::java
+  end
+
+  subgraph G["⬢ Go 典型项目 (按功能聚合)"]
+    direction TB
+    G1["cmd/<br/>server/main.go"]:::go
+    G2["internal/<br/>user/<br/>  user.go<br/>  service.go<br/>  repository.go<br/>  handler.go"]:::go
+    G3["pkg/<br/>logger/<br/>middleware/"]:::go
+    G4["api/<br/>proto / openapi"]:::go
+    G5["configs/<br/>config.yaml"]:::go
+    G1 --> G2
+    G1 --> G3
+    G1 --> G4
+    G1 --> G5
+  end
+
+  classDef java fill:#fab387,color:#11111b,stroke:#fab387;
+  classDef go fill:#89b4fa,color:#11111b,stroke:#89b4fa;
+      </div>
+      <div class="diagram-caption">图 2 · Spring Boot 多层目录 vs Go 按功能聚合目录</div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>对比项</th>
+          <th>Java (Spring Boot)</th>
+          <th>Go</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>目录划分</td><td>按层 (controller / service / dao)</td><td>按功能 / 业务域 (user, order...)</td></tr>
+        <tr><td>包名风格</td><td><code>com.example.user.service</code></td><td><code>user</code></td></tr>
+        <tr><td>入口</td><td><code>Application.java</code> (Spring 自动扫描)</td><td><code>cmd/.../main.go</code> (手动组装)</td></tr>
+        <tr><td>内部可见性</td><td><code>public / protected / private</code></td><td><code>internal/</code> + 首字母大小写</td></tr>
+        <tr><td>循环依赖</td><td>容器可容忍,运行时报错</td><td>编译期就报错,被迫拆包</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="philosophy">7. Go 的设计哲学</h2>
+
+    <table>
+      <thead>
+        <tr><th>原则</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>简单优于复杂</strong></td><td>避免过度设计,保持代码简单直接</td></tr>
+        <tr><td><strong>组合优于继承</strong></td><td>使用组合复用代码,而非继承</td></tr>
+        <tr><td><strong>明确优于隐式</strong></td><td>显式处理错误,显式传递依赖</td></tr>
+        <tr><td><strong>并发是一等公民</strong></td><td>Goroutine + Channel,CSP 模型</td></tr>
+        <tr><td><strong>标准库优先</strong></td><td>优先使用标准库,避免不必要的依赖</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="anti-patterns">8. Java 开发者的反模式(不要这样写 Go)</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 用 struct 模拟类继承</span>
+      <pre class="language-go"><code>// 不要这样!
+type Base struct{}
+type Derived struct { Base }
+// 然后给 Derived 加一堆方法,试图覆盖 Base —— Go 没有真正的多态覆盖</code></pre>
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 忽略 error</span>
+      <pre class="language-go"><code>// 不要这样!
+user, _ := GetUser()
+// 一旦出错,你拿到的是一个空指针或半完整对象,生产环境一定出事</code></pre>
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 用 panic 代替 error</span>
+      <pre class="language-go"><code>// 不要这样!
+if err != nil {
+    panic(err)
+}
+// panic 用于不可恢复故障,正常业务错误请返回 error</code></pre>
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">❌ 过度设计 / 抽象层堆叠</span>
+      <pre class="language-go"><code>// 不要为了「将来灵活」而提前抽象出 Factory、Adapter、Strategy 三层
+// Go 的灵魂是 KISS,等真有第二个实现时再抽象也来得及</code></pre>
+    </div>
+
+    <h2 id="summary">9. 一句话总结</h2>
+
+    <div class="callout note">
+      <span class="callout-title">最重要的心智迁移</span>
+      Java 是<strong>「类型 + 容器」</strong>的世界,通过 IoC、AOP、反射等魔法让代码看起来简洁;<br/>
+      Go 是<strong>「值 + 接口」</strong>的世界,所有东西都写在表面,没有隐藏控制流。<br/>
+      把 Go 当 Java 来写,只会写出又笨又难维护的代码。请<strong>拥抱简单</strong>。
+    </div>
+
+    <div class="page-nav">
+      <a class="prev" href="../PROJECT_RULES.html">
+        <div class="label">← 上一篇</div>
+        <div class="title">PROJECT RULES</div>
+      </a>
+      <a class="next" href="./java_go_concurrency.html">
+        <div class="label">下一篇 →</div>
+        <div class="title">Java/Go 并发对比</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../assets/site.js"></script>
+</body>
+</html>

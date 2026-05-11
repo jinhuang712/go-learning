@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>6.3 修复数据竞争 · Lesson 6 · Race Detector · Go Learning</title>
+<link rel="stylesheet" href="../../assets/style.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <a href="../../README.html" class="home-link">⬢ Go Learning</a>
+    <a href="../../study-plan.html">学习总览 · Study Plan</a>
+    <a href="../../PROJECT_RULES.html">📐 PROJECT RULES</a>
+
+    <h2>📚 架构对照 docs</h2>
+    <a href="../../docs/java_go_architecture.html">Java/Go 架构思路</a>
+    <a href="../../docs/java_go_concurrency.html">Java/Go 并发对比</a>
+    <a href="../../docs/java_go_design_patterns.html">Java/Go 设计模式</a>
+    <a href="../../docs/java_go_microservices.html">Java/Go 微服务</a>
+
+    <h2>Unit 1 · 基础与心智模型</h2>
+    <a href="../../unit_01_fundamentals/lesson_00_packages/lesson_00_packages.html">L0 · Packages</a>
+    <a href="../../unit_01_fundamentals/lesson_01_basics/lesson_01_basics.html">L1 · Basics 基础语法</a>
+    <a href="../../unit_01_fundamentals/lesson_02_collections/lesson_02_collections.html">L2 · Collections 集合</a>
+    <a href="../../unit_01_fundamentals/lesson_03_structs_interfaces/lesson_03_structs_interfaces.html">L3 · Struct & Interface</a>
+    <a href="../../unit_01_fundamentals/lesson_04_pointers/lesson_04_pointers.html">L4 · Pointers 指针</a>
+    <a href="../../unit_01_fundamentals/lesson_05_error_handling/lesson_05_error_handling.html">L5 · Error Handling</a>
+    <a href="../../unit_01_fundamentals/lesson_06_java_go_pitfalls/lesson_06_java_go_pitfalls.html">L6 · Java→Go 坑点专项</a>
+
+    <h2>Unit 2 · 并发与并行</h2>
+    <a href="../lesson_01_goroutine/lesson_01_goroutine.html">L1 · Goroutine</a>
+    <a href="../lesson_02_channel/lesson_02_channel.html">L2 · Channel</a>
+    <a href="../lesson_03_select/lesson_03_select.html">L3 · Select</a>
+    <a href="../lesson_04_context/lesson_04_context.html">L4 · Context</a>
+    <a href="../lesson_05_sync_atomic/lesson_05_sync_atomic.html">L5 · Sync / Atomic</a>
+    <a href="../lesson_06_race_detector/lesson_06_race_detector.html" class="active">L6 · Race Detector</a>
+
+    <h2>Unit 3 · 底层原理 & 性能</h2>
+    <a href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">L1 · G-M-P 调度器</a>
+  </aside>
+
+  <main>
+    <nav class="breadcrumb">
+      <a href="../../README.html">⬢ Home</a>
+      <span class="sep">/</span>
+      <a href="../../study-plan.html">Study Plan</a>
+      <span class="sep">/</span>
+      <a href="./lesson_06_race_detector.html">L6 · Race Detector</a>
+      <span class="sep">/</span>
+      <span class="current">6.3 修复数据竞争</span>
+    </nav>
+
+    <h1>6.3 修复数据竞争 · 四种方案与选型</h1>
+
+    <p>检测到 race 之后,你有 4 种主流修复方案:<strong>Mutex / RWMutex / atomic / channel</strong>。它们不是互相替代,而是<strong>有各自最优场景</strong>。选错了,代码要么慢、要么难读、要么仍然不安全。</p>
+
+    <h2 id="four-options">1. 四种方案速查</h2>
+
+    <table>
+      <thead><tr><th>方案</th><th>核心思路</th><th>典型场景</th><th>性能档位</th></tr></thead>
+      <tbody>
+        <tr><td><code>sync.Mutex</code></td><td>临界区互斥</td><td>通用,临界区有多步操作</td><td>中</td></tr>
+        <tr><td><code>sync.RWMutex</code></td><td>读写分级</td><td>读多写少 + 临界区较大(&gt;10μs)</td><td>中高(读路径)</td></tr>
+        <tr><td><code>sync/atomic</code></td><td>无锁原子指令</td><td>简单计数器、标志位、引用替换</td><td>高</td></tr>
+        <tr><td>channel</td><td>所有权转移</td><td>数据流水线 / pipeline / 取消信号</td><td>低-中(语义优先)</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="decision-tree">2. 选型决策树</h2>
+
+    <div class="diagram">
+      <div class="mermaid">
+flowchart TD
+  S([发现共享变量需要同步]) --&gt; Q1{操作类型?}
+
+  Q1 --&gt;|单字段简单读写<br/>计数器/标志位| AT[sync/atomic<br/>无锁 · 最快]
+  Q1 --&gt;|多步骤复合操作<br/>读-改-写 / 多字段| Q2{读写比例?}
+  Q1 --&gt;|数据所有权流转<br/>pipeline / 信号通知| CH[channel<br/>CSP 风格]
+
+  Q2 --&gt;|读多写少<br/>且临界区 &gt; 10μs| RW[sync.RWMutex<br/>读路径并发]
+  Q2 --&gt;|读写接近<br/>或临界区极短| MU[sync.Mutex<br/>通用方案]
+
+  AT --&gt; AT1[例: QPS 计数 / on 标志]
+  RW --&gt; RW1[例: 配置缓存 / 路由表]
+  MU --&gt; MU1[例: 业务对象更新]
+  CH --&gt; CH1[例: 任务队列 / fan-in]
+
+  classDef good fill:#1e1e2e,stroke:#a6e3a1,color:#cdd6f4;
+  classDef neutral fill:#1e1e2e,stroke:#89b4fa,color:#cdd6f4;
+  classDef hot fill:#1e1e2e,stroke:#cba6f7,color:#cdd6f4;
+  classDef warn fill:#1e1e2e,stroke:#f9e2af,color:#cdd6f4;
+  class S,Q1,Q2 hot;
+  class AT,RW good;
+  class MU,CH neutral;
+  class AT1,RW1,MU1,CH1 neutral;
+      </div>
+      <div class="diagram-caption">图 · Mutex / RWMutex / atomic / channel 选型决策树</div>
+    </div>
+
+    <h2 id="fix-mutex">3. 方案一 · sync.Mutex(通用)</h2>
+
+    <pre class="language-go"><code>type Counter struct {
+    mu    sync.Mutex
+    count int
+}
+
+func (c *Counter) Inc() {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.count++
+}
+
+func (c *Counter) Get() int {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    return c.count
+}</code></pre>
+
+    <p><strong>什么时候选它:</strong>不知道选什么时,先用 Mutex。临界区里有多步操作、多个字段、复杂条件判断,Mutex 永远不会错。</p>
+
+    <h2 id="fix-rwmutex">4. 方案二 · sync.RWMutex(读多写少)</h2>
+
+    <pre class="language-go"><code>type Cache struct {
+    mu   sync.RWMutex
+    data map[string]string
+}
+
+func (c *Cache) Get(k string) (string, bool) {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    v, ok := c.data[k]
+    return v, ok
+}
+
+func (c *Cache) Set(k, v string) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.data[k] = v
+}</code></pre>
+
+    <div class="callout warn">
+      <span class="callout-title">RWMutex 不是免费的午餐</span>
+      RWMutex 内部维护 reader 计数,开销比 Mutex 大。判定标准:<br/>
+      <strong>临界区 &lt; 1μs 或 写比例 &gt; 25% → 用 Mutex 反而更快</strong>。<br/>
+      <strong>临界区 &gt; 10μs 且 写比例 &lt; 10% → RWMutex 优势明显</strong>。
+    </div>
+
+    <h2 id="fix-atomic">5. 方案三 · sync/atomic(最快)</h2>
+
+    <pre class="language-go"><code>type Counter struct {
+    count int64
+}
+
+func (c *Counter) Inc()           { atomic.AddInt64(&amp;c.count, 1) }
+func (c *Counter) Get() int64     { return atomic.LoadInt64(&amp;c.count) }
+
+// Go 1.19+ 新 API,推荐
+type Counter2 struct {
+    count atomic.Int64
+}
+
+func (c *Counter2) Inc()       { c.count.Add(1) }
+func (c *Counter2) Get() int64 { return c.count.Load() }</code></pre>
+
+    <p><strong>什么时候选它:</strong>只有<strong>单字段简单操作</strong>(计数 / 标志位 / 引用切换)。一旦需要「读完再判断再写」的复合逻辑,要么用 CAS 循环、要么改用 Mutex。</p>
+
+    <h2 id="fix-channel">6. 方案四 · channel(CSP 风格)</h2>
+
+    <pre class="language-go"><code>type Counter struct {
+    ch chan int
+}
+
+func NewCounter() *Counter {
+    c := &amp;Counter{ch: make(chan int, 1)}
+    c.ch &lt;- 0
+    return c
+}
+
+func (c *Counter) Inc() {
+    n := &lt;-c.ch
+    n++
+    c.ch &lt;- n
+}
+
+func (c *Counter) Get() int {
+    n := &lt;-c.ch
+    c.ch &lt;- n
+    return n
+}</code></pre>
+
+    <div class="callout tip">
+      <span class="callout-title">不要为了「Go 范儿」滥用 channel</span>
+      上面这个 channel 计数器只是<strong>演示用</strong>——简单计数用 channel 比 Mutex 慢 10× 以上,而且语义更难读。channel 的最佳场景是<strong>数据所有权的流转</strong>(pipeline、生产者消费者、取消传播),不是「保护共享状态」。
+    </div>
+
+    <h2 id="benchmark">7. 性能横向对比(直观感受)</h2>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "sync"
+    "sync/atomic"
+    "time"
+)
+
+type MutexCounter struct {
+    mu    sync.Mutex
+    count int
+}
+func (c *MutexCounter) Inc() { c.mu.Lock(); c.count++; c.mu.Unlock() }
+func (c *MutexCounter) Get() int { c.mu.Lock(); defer c.mu.Unlock(); return c.count }
+
+type AtomicCounter struct{ count int64 }
+func (c *AtomicCounter) Inc()        { atomic.AddInt64(&amp;c.count, 1) }
+func (c *AtomicCounter) Get() int64  { return atomic.LoadInt64(&amp;c.count) }
+
+type ChannelCounter struct{ ch chan int }
+func NewChannelCounter() *ChannelCounter {
+    c := &amp;ChannelCounter{ch: make(chan int, 1)}
+    c.ch &lt;- 0
+    return c
+}
+func (c *ChannelCounter) Inc()       { n := &lt;-c.ch; n++; c.ch &lt;- n }
+func (c *ChannelCounter) Get() int   { n := &lt;-c.ch; c.ch &lt;- n; return n }
+
+func main() {
+    const N = 1_000_000
+
+    mc := &amp;MutexCounter{}
+    start := time.Now()
+    var wg sync.WaitGroup
+    for i := 0; i &lt; N; i++ {
+        wg.Add(1)
+        go func() { defer wg.Done(); mc.Inc() }()
+    }
+    wg.Wait()
+    fmt.Printf("Mutex:   %d, time: %v\n", mc.Get(), time.Since(start))
+
+    ac := &amp;AtomicCounter{}
+    start = time.Now()
+    for i := 0; i &lt; N; i++ {
+        wg.Add(1)
+        go func() { defer wg.Done(); ac.Inc() }()
+    }
+    wg.Wait()
+    fmt.Printf("Atomic:  %d, time: %v\n", ac.Get(), time.Since(start))
+
+    cc := NewChannelCounter()
+    start = time.Now()
+    for i := 0; i &lt; 1000; i++ {  // 少跑 1000×
+        wg.Add(1)
+        go func() { defer wg.Done(); cc.Inc() }()
+    }
+    wg.Wait()
+    fmt.Printf("Channel: %d, time: %v (only 1000 iters!)\n", cc.Get(), time.Since(start))
+}</code></pre>
+
+    <p>典型机器上的相对性能(仅供感受,实际数字看机器):</p>
+    <table>
+      <thead><tr><th>方案</th><th>1M 次累加耗时</th><th>相对慢度</th></tr></thead>
+      <tbody>
+        <tr><td>atomic</td><td>~30 ms</td><td>1×</td></tr>
+        <tr><td>Mutex</td><td>~200 ms</td><td>~7×</td></tr>
+        <tr><td>RWMutex(纯写)</td><td>~280 ms</td><td>~9×</td></tr>
+        <tr><td>channel</td><td>1k 次就 ~3 ms,1M 次 推算 &gt;3 s</td><td>~100×</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="java-compare">8. Java 修复方案对照</h2>
+
+    <table>
+      <thead><tr><th>Go</th><th>Java</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>sync.Mutex</code></td><td><code>synchronized</code> / <code>ReentrantLock</code></td><td>都是通用互斥</td></tr>
+        <tr><td><code>sync.RWMutex</code></td><td><code>ReentrantReadWriteLock</code></td><td>都支持读写分级</td></tr>
+        <tr><td><code>sync/atomic</code></td><td><code>AtomicInteger</code> 等 / <code>VarHandle</code></td><td>都用 CPU CAS 指令</td></tr>
+        <tr><td><code>sync.Map</code></td><td><code>ConcurrentHashMap</code></td><td>Java 的更通用,Go 的偏读多写少</td></tr>
+        <tr><td>channel</td><td><code>BlockingQueue</code> / <code>Disruptor</code></td><td>Java 没有「语言级 channel」,需要库</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout java">
+      <span class="callout-title">从 Java 思维切到 Go 的最大差异</span>
+      Java 老兵的本能是「找一个并发集合类」(ConcurrentHashMap、CopyOnWriteArrayList),Go 的本能应该是先问<strong>「能不能用 channel 把共享变成传递?」</strong> 不行再用 Mutex/atomic。Rob Pike 的名言:<em>「Don't communicate by sharing memory; share memory by communicating.」</em>
+    </div>
+
+    <h2 id="pitfalls">9. 生产环境坑点</h2>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 1:简单的计数器套上 Channel</span>
+      上面 benchmark 显示 channel 计数比 atomic 慢 100×。<strong>简单的计数器永远应该用 atomic 或 Mutex</strong>,不要为了「看起来 Go-style」用 channel。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 2:用 sync.Map 替代所有 map</span>
+      <code>sync.Map</code> 在写多读少时比 RWMutex+map 慢 2-3 倍。它真正擅长的是「键空间稳定 + 读绝对压倒写」(典型:微服务路由表、metric 标签 map)。
+    </div>
+
+    <div class="callout danger">
+      <span class="callout-title">坑点 3:修完不跑 race detector 二次验证</span>
+<pre class="language-bash" style="margin: 8px 0 0 0"><code># ❌ 改完代码直接合并
+git push origin fix/race-counter
+
+# ✅ 加锁后必须用 race detector 再次确认
+go test -race -count=3 ./...
+git push origin fix/race-counter</code></pre>
+      Race 修复经常出现「修了 A 点忘了 B 点」的情况,<code>-race -count=N</code> 是最便宜的兜底。
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-title">坑点 4:用读锁包住会写的逻辑</span>
+<pre class="language-go" style="margin: 8px 0 0 0"><code>// ❌ 用 RLock 但里面其实改了状态
+func (c *Cache) GetOrInit(k string) string {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+    if v, ok := c.data[k]; ok { return v }
+    c.data[k] = compute(k)   // 💥 在读锁下写 map → race
+    return c.data[k]
+}</code></pre>
+      要么全程持写锁,要么用「双检查」模式:RLock 看 → 命中返回 / 没命中升级到 Lock 重新检查再写。
+    </div>
+
+    <h2 id="practice">📝 练习题</h2>
+
+    <h3>练习 3.1 · 用三种方案修同一个 race</h3>
+
+    <pre class="language-go"><code>package main
+
+import (
+    "fmt"
+    "sync"
+)
+
+func main() {
+    var counter int
+    var wg sync.WaitGroup
+
+    for i := 0; i &lt; 1000; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            counter++ // race
+        }()
+    }
+
+    wg.Wait()
+    fmt.Println("Counter:", counter)
+}</code></pre>
+
+    <p>验收标准:</p>
+    <ul>
+      <li>Mutex 版本</li>
+      <li>atomic 版本</li>
+      <li>channel 版本</li>
+      <li>三个版本都跑 <code>go test -race</code> 通过</li>
+      <li>简单测量三个版本的性能差异(<code>time.Since</code> 或 Go benchmark)</li>
+    </ul>
+
+    <h3>练习 3.2 · 概念题</h3>
+    <ol>
+      <li>什么时候用 Mutex、什么时候用 atomic、什么时候用 channel?给出 3 个判断维度。</li>
+      <li>为什么「channel 总是更 Go-style」是错误的迷思?</li>
+      <li>RWMutex 一定比 Mutex 快吗?什么时候反而更慢?</li>
+    </ol>
+
+    <div class="page-nav">
+      <a class="prev" href="./02_race_detector.html">
+        <div class="label">← 上一页</div>
+        <div class="title">6.2 · race detector 用法</div>
+      </a>
+      <a class="next" href="../../unit_03_performance/lesson_01_gmp_scheduler/lesson_01_gmp_scheduler.html">
+        <div class="label">下一页 →</div>
+        <div class="title">Unit 3 · L1 G-M-P 调度</div>
+      </a>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="../../assets/site.js"></script>
+</body>
+</html>
